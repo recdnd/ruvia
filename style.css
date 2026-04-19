@@ -1,0 +1,608 @@
+:root {
+  --font-ui: "Consolas", "Courier New", monospace;
+  --bg: #ffffff;
+  --dot: rgba(0, 0, 0, 0.06);
+  --panel: rgba(0, 0, 0, 0.01);
+  --line: rgba(0, 0, 0, 0.045);
+  --line-soft: rgba(0, 0, 0, 0.02);
+  --text: rgba(28, 28, 28, 0.56);
+  --text-dim: rgba(28, 28, 28, 0.22);
+  --knot-bg: rgba(120, 120, 120, 0.08);
+  --knot-bg-hover: rgba(120, 120, 120, 0.12);
+  --red: #ff0000;
+  --red-soft: rgba(255, 0, 0, 0.68);
+  --port-bg: rgba(255, 0, 0, 0.06);
+  --edge: rgba(110, 110, 110, 0.14);
+  --stash-bg: rgba(0, 0, 0, 0.008);
+  --ctrl-fg: rgba(0, 0, 0, 0.42);
+  --ctrl-size: 10px;
+  --ctrl-font: 8px;
+  --ambient-ctrl-height: 16px;
+  --ambient-ctrl-pad-x: 4px;
+  --ambient-ctrl-font: 8px;
+  --ambient-ctrl-radius: 2px;
+  --ambient-ctrl-border: rgba(0, 0, 0, 0.08);
+  --ambient-ctrl-bg: rgba(255, 255, 255, 0.42);
+  --ambient-ctrl-bg-hover: rgba(255, 255, 255, 0.68);
+  --ambient-ctrl-fg: rgba(0, 0, 0, 0.46);
+  --ambient-ctrl-fg-hover: var(--red);
+}
+
+/* pure white mode */
+body.white-mode {
+  --bg: #ffffff;
+  --dot: rgba(0, 0, 0, 0.07);
+  --panel: rgba(0, 0, 0, 0.012);
+  --line: rgba(0, 0, 0, 0.05);
+  --line-soft: rgba(0, 0, 0, 0.024);
+  --text: rgba(28, 28, 28, 0.6);
+  --text-dim: rgba(28, 28, 28, 0.24);
+  --knot-bg: rgba(120, 120, 120, 0.09);
+  --knot-bg-hover: rgba(120, 120, 120, 0.13);
+  --red: #ff0000;
+  --red-soft: rgba(255, 0, 0, 0.68);
+  --port-bg: rgba(255, 0, 0, 0.06);
+  --edge: rgba(110, 110, 110, 0.16);
+  --stash-bg: rgba(0, 0, 0, 0.01);
+  --ctrl-fg: rgba(0, 0, 0, 0.46);
+  --ctrl-size: 10px;
+  --ctrl-font: 8px;
+  --ambient-ctrl-border: rgba(0, 0, 0, 0.09);
+  --ambient-ctrl-bg: rgba(255, 255, 255, 0.46);
+  --ambient-ctrl-bg-hover: rgba(255, 255, 255, 0.72);
+  --ambient-ctrl-fg: rgba(0, 0, 0, 0.48);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: var(--font-ui);
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  overflow: hidden;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* toolbar: almost no presence */
+.toolbar {
+  height: 16px;
+  padding: 0;
+  border-bottom: 0;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  opacity: 0.08;
+  user-select: none;
+}
+
+.toolbar:hover {
+  opacity: 0.22;
+}
+
+.title-wrap {
+  display: none;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: auto;
+}
+
+.tool-btn {
+  height: 12px;
+  min-width: 0;
+  padding: 0 3px;
+  border: 0;
+  background: transparent;
+  color: var(--ctrl-fg);
+  border-radius: 0;
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--ctrl-font);
+  line-height: 12px;
+}
+
+.tool-btn:hover,
+.tool-btn:focus-visible {
+  color: var(--red);
+  outline: none;
+}
+
+.tool-btn.danger:hover,
+.tool-btn.danger:focus-visible {
+  color: var(--red);
+  background: transparent;
+}
+
+.workspace {
+  flex: 1;
+  position: relative;
+  display: grid;
+  /* stash 欄寬：先前 468px 的 70% */
+  grid-template-columns: minmax(0, 1fr) calc(468px * 0.7);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.canvas-pane {
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  background-color: #fff;
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.055) 0.6px, transparent 0.75px);
+  background-size: 26px 26px;
+  background-position: 0 0;
+}
+
+.edge-layer,
+.knot-layer,
+.edge-tool-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.edge-layer {
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.knot-layer {
+  z-index: 3;
+  pointer-events: none;
+}
+
+.edge-tool-layer {
+  z-index: 7;
+  pointer-events: none;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1;
+  pointer-events: visibleStroke;
+}
+
+body.white-mode .edge {
+  stroke: rgba(130, 130, 130, 0.18);
+}
+
+.edge.temp {
+  stroke: var(--red);
+  stroke-dasharray: 2 2;
+}
+
+.edge-cut {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 8px;
+  line-height: 10px;
+  text-align: center;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.edge-cut.is-visible {
+  color: var(--text-dim);
+}
+
+.edge-cut:hover,
+.edge-cut:focus-visible {
+  color: var(--red);
+  background: transparent;
+  outline: none;
+}
+
+.knot {
+  position: absolute;
+  min-width: 96px;
+  border: 1px solid var(--line-soft);
+  background: var(--knot-bg);
+  color: var(--text);
+  user-select: none;
+  pointer-events: auto;
+}
+
+body.white-mode .knot {
+  border: 0;
+  background: var(--knot-bg);
+}
+
+.knot:hover,
+.knot.is-selected {
+  border-color: transparent;
+  background: var(--knot-bg-hover);
+}
+
+body.white-mode .knot:hover,
+body.white-mode .knot.is-selected {
+  border-color: transparent;
+  background: rgba(120, 120, 120, 0.12);
+}
+
+.knot.is-child-collapsed {
+  border-style: solid;
+}
+
+.knot-header {
+  min-height: 12px;
+  display: flex;
+  align-items: flex-start;
+  cursor: move;
+  position: relative;
+  padding: 0;
+  overflow: visible;
+}
+
+.knot-title {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+  margin: 0;
+  outline: none;
+  line-height: 1.15;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
+  font-size: 8px;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+  display: block;
+}
+
+.knot-title:focus {
+  color: var(--red);
+}
+
+/* header controls hidden/minimized */
+.knot-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+}
+
+/* completely hide old buttons */
+.type-btn,
+.collapse-btn,
+.children-btn {
+  display: none !important;
+}
+
+.delete-btn {
+  display: none;
+  width: var(--ctrl-size);
+  height: var(--ctrl-size);
+  border: 0;
+  background: transparent;
+  color: var(--ctrl-fg);
+  padding: 0;
+  margin: 0;
+  line-height: var(--ctrl-size);
+  cursor: pointer;
+  font-size: var(--ctrl-font);
+}
+
+.knot:hover .delete-btn,
+.knot.is-selected .delete-btn {
+  display: inline-block;
+}
+
+.delete-btn:hover,
+.delete-btn:focus-visible {
+  color: var(--red);
+  background: transparent;
+  outline: none;
+}
+
+.knot-content {
+  border-top: 0;
+  width: 100%;
+  padding-top: 0;
+}
+
+.knot:not(.content-expanded) .knot-content {
+  display: none;
+}
+
+.knot-content-input {
+  width: 100%;
+  min-width: 96px;
+  min-height: 10px;
+  border: 0;
+  resize: both;
+  overflow: auto;
+  background: transparent;
+  color: var(--text-dim);
+  outline: none;
+  padding: 2px 0 0 0;
+  margin: 0;
+  line-height: 1.15;
+  font-size: 8px;
+  font-family: var(--font-ui);
+  display: block;
+}
+
+.knot-content-input::placeholder {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+.knot-content-input:focus {
+  color: var(--red);
+}
+
+.port {
+  position: absolute;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.knot:hover .port {
+  opacity: 1;
+  pointer-events: auto;
+  background: var(--port-bg);
+}
+
+.port.left {
+  left: -2px;
+}
+
+.port.right {
+  right: -2px;
+}
+
+.port:hover {
+  background: var(--red);
+}
+
+.side-add {
+  position: absolute;
+  top: 50%;
+  width: var(--ctrl-size);
+  height: var(--ctrl-size);
+  margin-top: calc(var(--ctrl-size) / -2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: var(--ctrl-font);
+  line-height: var(--ctrl-size);
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.knot:hover .side-add,
+.knot.is-selected .side-add {
+  opacity: 1;
+  pointer-events: auto;
+  color: var(--ctrl-fg);
+}
+
+.side-add.left {
+  left: -10px;
+}
+
+.side-add.right {
+  right: -10px;
+}
+
+.side-add:hover,
+.side-add:focus-visible {
+  color: var(--red);
+  background: transparent;
+  outline: none;
+}
+
+.knot-meta {
+  display: none !important;
+}
+
+.drag-hint {
+  position: absolute;
+  border: 1px dashed rgba(255, 0, 0, 0.38);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.stash-pane {
+  grid-column: 2;
+  grid-row: 1;
+  background: transparent;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.02);
+  padding: 13px 8px 8px 13px;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.stash-pane::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.015);
+  pointer-events: none;
+}
+
+.stash-pane.is-active::before {
+  border-left-color: var(--red-soft);
+}
+
+.stash-title {
+  position: relative;
+  z-index: 1;
+  font-size: 19px;
+  font-family: var(--font-ui);
+  color: rgba(0, 0, 0, 0.34);
+  margin: 0 0 8px 0;
+  height: auto;
+  text-transform: lowercase;
+  user-select: none;
+  letter-spacing: 0;
+}
+
+.template-tray {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0;
+  opacity: 1;
+  align-items: center;
+}
+
+/* stash「+」：見 docs/stash-template-button.md */
+.template-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid var(--ambient-ctrl-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ambient-ctrl-fg);
+  cursor: pointer;
+  font-size: 17px;
+  font-family: var(--font-ui);
+  line-height: 1.15;
+  letter-spacing: 0;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.template-btn:hover,
+.template-btn:focus-visible {
+  color: var(--ambient-ctrl-fg-hover);
+  background: transparent;
+  border-color: rgba(255, 0, 0, 0.22);
+  outline: none;
+}
+
+/* 覆蓋整個 workspace、永遠在最上層；內容僅右下角兩個小字 */
+.floating-ui {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  position: relative;
+  z-index: 9999;
+  min-height: 0;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.zoom-controls {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  z-index: 10000;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  pointer-events: auto;
+}
+
+.zoom-controls:hover,
+.zoom-controls:focus-within {
+  opacity: 1;
+}
+
+.zoom-btn {
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 1px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.78);
+  cursor: pointer;
+  line-height: 1;
+  /* 原 11px 增大 200%（+200% → 3×） */
+  font-size: 33px;
+  font-weight: 400;
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+  text-align: center;
+  box-shadow: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+body.white-mode .zoom-btn {
+  color: rgba(0, 0, 0, 0.72);
+}
+
+.zoom-btn:hover,
+.zoom-btn:focus-visible {
+  color: var(--red);
+  background: transparent;
+  outline: none;
+}

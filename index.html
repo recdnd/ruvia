@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ruvia</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="toolbar">
+      <div class="title-wrap">
+        <h1 class="title">Ruvia</h1>
+        <div class="subtitle">compact knot workbench</div>
+      </div>
+      <div class="toolbar-actions">
+        <button id="newKnotBtn" class="tool-btn" type="button">New Knot</button>
+        <button id="exportBtn" class="tool-btn" type="button">Export JSON</button>
+        <button id="importBtn" class="tool-btn" type="button">Import JSON</button>
+        <button id="resetBtn" class="tool-btn danger" type="button">Reset</button>
+        <input id="importInput" type="file" accept="application/json" hidden>
+      </div>
+    </header>
+
+    <main id="workspace" class="workspace">
+      <section class="canvas-pane" aria-label="canvas pane">
+        <section id="canvas" class="canvas" aria-label="knot canvas"></section>
+        <svg id="edgeLayer" class="edge-layer" xmlns="http://www.w3.org/2000/svg"></svg>
+        <div id="knotLayer" class="knot-layer"></div>
+      </section>
+
+      <aside id="stash" class="stash-pane" aria-label="stash area">
+        <div class="stash-title">stash</div>
+        <div id="templateTray" class="template-tray"></div>
+      </aside>
+
+      <div class="floating-ui" aria-hidden="false">
+        <div id="zoomControls" class="zoom-controls" role="group" aria-label="畫布縮放（knot 檢視）">
+          <button id="zoomOutBtn" class="zoom-btn" type="button" title="縮小" aria-label="縮小">−</button>
+          <button id="zoomInBtn" class="zoom-btn" type="button" title="放大" aria-label="放大">+</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

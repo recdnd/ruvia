@@ -1,0 +1,1 @@
+# 與匯出 JSON 內 `files.structureText` 同型；執行期由程式依 hierarchy + menus 產生。
