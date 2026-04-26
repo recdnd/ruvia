@@ -1,0 +1,203 @@
+{
+  "spec": "ruvia-doc/0.1",
+  "document": {
+    "id": "doc_root1",
+    "title": "Demo Root 1",
+    "createdAt": "2026-04-26T10:00:00.000Z",
+    "updatedAt": "2026-04-26T10:00:00.000Z",
+    "meta": {}
+  },
+  "hierarchy": {
+    "folders": [
+      {
+        "id": "f_root",
+        "name": "root",
+        "menuIds": [
+          "m_main"
+        ]
+      }
+    ]
+  },
+  "menus": [
+    {
+      "id": "m_main",
+      "name": "Main",
+      "knotIds": [
+        "demo_a",
+        "demo_b",
+        "demo_c",
+        "demo_d",
+        "demo_e",
+        "demo_f",
+        "demo_g"
+      ],
+      "edgeIds": [
+        "e_ab",
+        "e_ac",
+        "e_ad",
+        "e_ae",
+        "e_af",
+        "e_ag"
+      ],
+      "meta": {}
+    }
+  ],
+  "roots": [
+    {
+      "id": "r_main",
+      "name": "my-project",
+      "menuIds": [
+        "m_main"
+      ],
+      "meta": {}
+    }
+  ],
+  "knots": [
+    {
+      "id": "demo_a",
+      "title": "knot-a",
+      "content": {
+        "text": "messy thought\n\n三叉：\n\n再长："
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_b",
+      "title": "knot-b",
+      "content": {
+        "text": "system model"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_c",
+      "title": "knot-c",
+      "content": {
+        "text": "writing surface"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_d",
+      "title": "knot-d",
+      "content": {
+        "text": "execution path"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_e",
+      "title": "knot-e",
+      "content": {
+        "text": "rules / relations"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_f",
+      "title": "knot-f",
+      "content": {
+        "text": "prompt / text"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    },
+    {
+      "id": "demo_g",
+      "title": "knot-g",
+      "content": {
+        "text": "next action"
+      },
+      "meta": {
+        "ui": {
+          "contentExpanded": true
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_ab",
+      "from": "demo_a",
+      "to": "demo_b",
+      "relation": "link",
+      "meta": {}
+    },
+    {
+      "id": "e_ac",
+      "from": "demo_a",
+      "to": "demo_c",
+      "relation": "link",
+      "meta": {}
+    },
+    {
+      "id": "e_ad",
+      "from": "demo_a",
+      "to": "demo_d",
+      "relation": "link",
+      "meta": {}
+    },
+    {
+      "id": "e_ae",
+      "from": "demo_a",
+      "to": "demo_e",
+      "relation": "link",
+      "meta": {}
+    },
+    {
+      "id": "e_af",
+      "from": "demo_a",
+      "to": "demo_f",
+      "relation": "link",
+      "meta": {}
+    },
+    {
+      "id": "e_ag",
+      "from": "demo_a",
+      "to": "demo_g",
+      "relation": "link",
+      "meta": {}
+    }
+  ],
+  "ui": {
+    "activeMenuId": "m_main",
+    "layout": {
+      "knots": {
+        "demo_a": { "x": 52, "y": 88, "width": 96, "height": 28, "zone": "canvas", "zIndex": 1 },
+        "demo_b": { "x": 268, "y": 24, "width": 96, "height": 28, "zone": "canvas", "zIndex": 2 },
+        "demo_c": { "x": 268, "y": 104, "width": 96, "height": 28, "zone": "canvas", "zIndex": 3 },
+        "demo_d": { "x": 268, "y": 184, "width": 96, "height": 28, "zone": "canvas", "zIndex": 4 },
+        "demo_e": { "x": 468, "y": 52, "width": 96, "height": 28, "zone": "canvas", "zIndex": 5 },
+        "demo_f": { "x": 468, "y": 112, "width": 96, "height": 28, "zone": "canvas", "zIndex": 6 },
+        "demo_g": { "x": 468, "y": 172, "width": 96, "height": 28, "zone": "canvas", "zIndex": 7 }
+      }
+    }
+  },
+  "files": {
+    "menuText": "",
+    "structureText": ""
+  }
+}

@@ -11,6 +11,69 @@
 
 ## 紀錄
 
+### 2026-04-26 — ✨ 精華 Prompt 索引（可直接複用）
+
+**Prompt 要點**
+
+- **P1｜畫布拖拽 pan + mobile menu drawer（不重設計）**
+  - 空白背景可拖動畫布（不影響 knot 拖曳、port 拉線、zoom、tray）。
+  - `applyZoom()` 用同一組 `translate(panX, panY) scale(z)` 套到 `knotLayer/edgeLayer/edgeToolLayer`。
+  - mobile 左下 `𓏢` 開關 menu，點 menu item 後自動收起。
+- **P2｜Root 檔案格式統一為 `.root`**
+  - Import/Load/in：收 `.root` + `.json`。
+  - Export/Save/out：下載 `.root`。
+  - `ruvia-local/roots` 範例檔全面改 `.root`；文件明確註記「`.root` 是 JSON 內容」。
+- **P3｜mobile tray 改抽屜，不常駐壓畫布**
+  - mobile 用右下 `◱` 開關 tray；tray 右側滑出，桌面行為不變。
+  - 與 mobile menu drawer 分離，不共用狀態。
+- **P4｜mobile 疊位修正（◱ 與 zoom `− +`）**
+  - `zoom-controls` 往左移，避開 `◱`。
+  - tray 改固定 `80vw x 30vh`、`transition: none`。
+  - 拉高 `floating-ui / zoom-controls / tray-drawer-toggle` z-index，確保 `− +` 不被 tray 蓋住。
+- **P5｜桌面 tray 折疊把手（與 mobile 分離）**
+  - `❯` 收起 tray、`❮` 展開 tray。
+  - 只影響桌面；mobile 強制隱藏此把手。
+
+**落實摘要**
+
+- `index.html`：新增 `menuDrawerToggle`、`trayDrawerToggle`、`trayCollapseBtn`。
+- `script.js`：新增 `app.pan*` 狀態與 `bindCanvasPan()`、`bindMobileMenu()`、`bindMobileTray()`、`bindTrayCollapse()`；`applyZoom()` 改為 `translate + scale`；menu item 點擊後 mobile 自動收起 drawer。
+- `style.css`：完成 mobile menu drawer、mobile tray drawer、桌面 tray collapse、mobile 疊位與 z-index 修正、tray 固定尺寸 `80vw x 30vh` 與無動畫設定。
+- Root 格式統一：`index.html` 匯入 accept 改 `.root,.json`；`script.js` 匯出檔名改 `.root`；`ruvia-local/roots` 範例檔改為 `.root`；`ruvia-local/README.md`、`docs/root-json-schema.md` 補齊副檔名定義。
+
+---
+
+### 2026-04-26 — ⚠️ side-add `+` 命中框收斂（不改位置）
+
+**Prompt 要點**
+
+- 單個 knot 左右 hover 顯示 `+` 時，現有按鈕命中範圍太大，會擋住其他按鈕。
+- 需求：hover 顯示範圍可維持目前行為，但「實際可點擊區」要幾乎只剩 `+` 本身。
+- 明確限制：**不要改 `+` 目前位置**（左右偏移維持現狀）。
+
+**落實摘要**
+
+- `style.css`：縮小 `.side-add` hitbox（一般 knot：`14x14 -> 9x9`；stash knot：`28x28 -> 18x18`）。
+- 同步調整 `line-height` 與 `margin-top`，確保視覺位置不漂移、但可點擊區收斂。
+- `left/right` 定位偏移未改動（保留既有位置）。
+
+---
+
+### 2026-04-26 — ⚠️ stash `+` 按鈕外框回復（緊貼字元）
+
+**Prompt 要點**
+
+- `stash` 的 `+` 按鈕外框被改壞，要求恢復為「緊貼字元外邊」的圓角矩形。
+- 明確要求：無 padding、無固定寬高、低存在感細邊框。
+- 需要把這次修復同步寫入規範，避免後續再次被改回。
+
+**落實摘要**
+
+- `style.css`：`.template-btn` 改為 `width:auto; height:auto; padding:0; border:1px solid var(--line-soft); border-radius:3px; font-size:8px; line-height:11px;`。
+- `docs/tray-template-button.md`：更新為最新 canonical 規範，並新增「禁止回歸項」清單。
+
+---
+
 ### 2026-04-18 — Stash 約 70%、縮放字 +200%
 
 **Prompt 要點**
@@ -20,7 +83,7 @@
 **落實摘要**
 
 - `style.css`：右欄 **`calc(468px * 0.7)`**；stash 內距、標題、template 間距與 `.template-btn` 約 ×0.7；`.zoom-btn` **`font-size: 33px`**。
-- `docs/stash-template-button.md`：已更新數值說明。
+- `docs/tray-template-button.md`：已更新數值說明。
 
 ---
 
@@ -34,7 +97,7 @@
 
 - `script.js`：顯示用 `getKnotDisplayTitle`、`focusin`/`focusout` 寫回；`normalizeDocument` 末遍歷 knots 正規化標題；`migrate`／`input.nodes` 用 `normalizeLegacyNodeTitle`；`renderTemplates` 僅 `["+"]`。
 - `style.css`：`.knot-title` 單行裁切；**workspace grid** 明確 `canvas`/`stash`/`floating-ui` 同列，`floating-ui` **跨欄**、`z-index: 9999`，縮放鈕 **11px**、無框；曾短暫 `display:none` 已撤銷。
-- `docs/stash-template-button.md`：註明 **padding 上下左右皆 0**。
+- `docs/tray-template-button.md`：註明 **padding 上下左右皆 0**。
 
 ---
 
@@ -48,7 +111,7 @@
 **落實摘要**
 
 - `style.css`：`grid-template-columns` 右欄 **468px**（156×3）；stash 內距、標題字、template 間距與按鈕邊框／字級隨 **3 倍**；`.zoom-btn` 改 **rgba(0,0,0,0.92)**、`font-size: calc(8px * 5)`、`font-weight: 600`，控制列 `opacity: 1`。
-- `docs/stash-template-button.md`：同步比例說明。
+- `docs/tray-template-button.md`：同步比例說明。
 
 ---
 
@@ -77,7 +140,7 @@
 **落實摘要**
 
 - `style.css`：`.template-btn` 透明底、`padding: 0`、`border-radius: 2px`、`inline-flex`；hover 仍無底色。
-- 新增 `docs/stash-template-button.md`。
+- 新增 `docs/tray-template-button.md`。
 - `index.html`：`.stash-title` 改為 `stash`。
 
 ---

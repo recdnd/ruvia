@@ -1,28 +1,78 @@
 (function () {
   /*
-   * Knots/edges/menus/packs live in one document; canvas shows the active menu slice.
+   * Knots/edges/menus/roots live in one document; canvas shows the active menu slice.
    * ui.layout stores positions only — no semantic knot types in core paths.
    * Helpers use knot/menu names (setKnotLayout, getKnotIdsForMenu); legacy import keys may still say nodes/nodeIds.
    * files.menuText + files.structureText are regenerated from hierarchy + menus (single source).
    * Selection, drag, connect, hover are runtime-only and not exported.
    */
   const STORAGE_KEY = "ruvia.v2.state";
+  const LEGACY_STORAGE_KEY = "ruvia.v1.state";
   const THEME_KEY = "ruvia.theme";
   const ZOOM_KEY = "ruvia.zoom";
   const GLOBAL_SCALE = 3;
   const SPEC = "ruvia-doc/0.1";
+  const KNOT_SIZE = {
+    width: 96,
+    height: 28,
+    minWidth: 72,
+    minHeight: 18
+  };
+  const STASH_KNOT_SIZE = {
+    width: 96,
+    height: 28
+  };
+  const RUVIA_COLORS = [
+    { name: "primrose", hex: "#efe5a8" },
+    { name: "veridian", hex: "#008747" },
+    { name: "sage", hex: "#90966f" },
+    { name: "mallow", hex: "#d5648c" },
+    { name: "rustrose", hex: "#b43c20" },
+    { name: "tealbell", hex: "#009a9a" },
+    { name: "coral", hex: "#ff8375" },
+    { name: "violet", hex: "#5130ba" },
+    { name: "aconite", hex: "#3f13a8" },
+    { name: "clove", hex: "#4b383d" },
+    { name: "thyme", hex: "#b6c9aa" },
+    { name: "cotton", hex: "#fff8f4" },
+    { name: "crimson", hex: "#d00045" },
+    { name: "orchid", hex: "#d20a8c" },
+    { name: "blush", hex: "#e8bdc8" },
+    { name: "sulfur", hex: "#eedb00" },
+    { name: "cinnabar", hex: "#e52b17" },
+    { name: "cyanflower", hex: "#1aa8c0" },
+    { name: "amethyst", hex: "#9462ba" },
+    { name: "mintglass", hex: "#5ed0c8" },
+    { name: "peach", hex: "#ffad8f" },
+    { name: "magenta", hex: "#ef5ee8" },
+    { name: "amber", hex: "#ed9900" },
+    { name: "ruvia", hex: "#f4f4f4" },
+    { name: "irisgray", hex: "#6c5a93" }
+  ];
 
   const app = {
     state: loadState(),
     selectedKnotId: null,
     dragKnot: null,
+    dragKnotLayer: null,
     offsetX: 0,
     offsetY: 0,
     connectFrom: null,
     tempPoint: null,
-    dragHint: null,
     hoverEdgeId: null,
+    hoverKnotId: null,
+    activeColorName: null,
+    activeDefaultColorName: null,
+    colorCursorEl: null,
+    isColorDragging: false,
     zoom: loadZoom(),
+    panX: 0,
+    panY: 0,
+    isPanning: false,
+    panStartX: 0,
+    panStartY: 0,
+    panOriginX: 0,
+    panOriginY: 0,
     resizeObserver: null,
     dom: {}
   };
@@ -33,26 +83,42 @@
     app.dom.workspace = document.getElementById("workspace");
     app.dom.canvasPane = document.querySelector(".canvas-pane");
     app.dom.knotLayer = document.getElementById("knotLayer");
+    app.dom.trayKnotLayer = document.getElementById("trayKnotLayer");
     app.dom.edgeLayer = document.getElementById("edgeLayer");
     app.dom.edgeToolLayer = ensureEdgeToolLayer();
-    app.dom.stash = document.getElementById("stash");
+    app.dom.tray = document.getElementById("tray");
     app.dom.templateTray = document.getElementById("templateTray");
     app.dom.newKnotBtn = document.getElementById("newKnotBtn");
     app.dom.exportBtn = document.getElementById("exportBtn");
     app.dom.importBtn = document.getElementById("importBtn");
     app.dom.importInput = document.getElementById("importInput");
     app.dom.resetBtn = document.getElementById("resetBtn");
+    app.dom.trayImportBtn = document.getElementById("trayImportBtn");
+    app.dom.trayExportBtn = document.getElementById("trayExportBtn");
+    app.dom.trayCollapseBtn = document.getElementById("trayCollapseBtn");
+    app.dom.trayDrawerToggle = document.getElementById("trayDrawerToggle");
+    app.dom.menuDrawerToggle = document.getElementById("menuDrawerToggle");
+    app.dom.colorDotBtn = document.getElementById("colorDotBtn");
+    app.dom.colorPalette = document.getElementById("colorPalette");
     app.dom.zoomOutBtn = document.getElementById("zoomOutBtn");
     app.dom.zoomInBtn = document.getElementById("zoomInBtn");
 
     applySavedTheme();
     bindThemeHotkeys();
     bindToolbar();
+    bindTrayActions();
+    bindTrayCollapse();
+    bindMobileTray();
+    bindMobileMenu();
     bindZoomControls();
     bindKnotEvents();
     bindConnectEvents();
     bindEdgeEvents();
+    bindCanvasPan();
     renderTemplates();
+    renderColorPalette();
+    bindColorPalette();
+    normalizeAllLayoutSizes(app.state);
 
     if (!app.state.knots.length) {
       createKnot({
@@ -113,7 +179,7 @@
       });
       const link = document.createElement("a");
       link.href = URL.createObjectURL(blob);
-      link.download = `ruvia-${Date.now()}.json`;
+      link.download = `ruvia-root-${Date.now()}.root`;
       link.click();
       URL.revokeObjectURL(link.href);
     });
@@ -134,16 +200,249 @@
         saveState();
         render();
       } catch (_error) {
-        alert("Import failed: invalid JSON");
+        alert("Import root failed: invalid JSON");
       }
     });
 
     app.dom.resetBtn.addEventListener("click", () => {
-      if (!confirm("Reset workspace?")) return;
-      app.state = createDefaultState();
+      if (
+        !confirm(
+          "將刪除本機全部 Ruvia 資料（工作區、縮放、主題），並只載入示例樹。確定？"
+        )
+      ) {
+        return;
+      }
+      clearRuviaLocalStorage();
+      app.state = buildShowcaseInitialState();
       app.selectedKnotId = null;
+      app.zoom = loadZoom();
+      applySavedTheme();
+      applyZoom();
       saveState();
+      saveZoom();
       render();
+    });
+  }
+
+  function bindTrayActions() {
+    if (app.dom.trayImportBtn) {
+      app.dom.trayImportBtn.addEventListener("click", () => {
+        app.dom.importBtn.click();
+      });
+    }
+    if (app.dom.trayExportBtn) {
+      app.dom.trayExportBtn.addEventListener("click", () => {
+        app.dom.exportBtn.click();
+      });
+    }
+  }
+
+  function bindMobileMenu() {
+    if (!app.dom.menuDrawerToggle) return;
+    app.dom.menuDrawerToggle.addEventListener("click", () => {
+      document.body.classList.toggle("menu-drawer-open");
+    });
+  }
+
+  function bindMobileTray() {
+    if (!app.dom.trayDrawerToggle) return;
+    app.dom.trayDrawerToggle.addEventListener("click", () => {
+      document.body.classList.toggle("tray-drawer-open");
+      if (document.body.classList.contains("tray-drawer-open")) {
+        enforceMobileTrayLayout();
+        render();
+      }
+    });
+  }
+
+  function getColorByName(name) {
+    if (!name) return null;
+    return RUVIA_COLORS.find((color) => color.name === name) || null;
+  }
+
+  function isMobileView() {
+    return window.matchMedia("(max-width: 720px)").matches;
+  }
+
+  function updateColorDot(knot) {
+    if (!app.dom.colorDotBtn) return;
+    if (isMobileView() && app.activeDefaultColorName) {
+      const active = getColorByName(app.activeDefaultColorName);
+      app.dom.colorDotBtn.style.color = active ? active.hex : "var(--text-dim)";
+      return;
+    }
+    const color = getColorByName(knot?.meta?.color);
+    app.dom.colorDotBtn.style.color = color ? color.hex : "var(--text-dim)";
+  }
+
+  function renderColorPalette() {
+    if (!app.dom.colorPalette) return;
+    const frag = document.createDocumentFragment();
+    for (const color of RUVIA_COLORS) {
+      const dot = document.createElement("button");
+      dot.type = "button";
+      dot.className = "palette-dot";
+      dot.dataset.colorName = color.name;
+      dot.title = color.name;
+      dot.textContent = "●";
+      dot.style.color = color.hex;
+      dot.draggable = true;
+      frag.append(dot);
+    }
+    app.dom.colorPalette.replaceChildren(frag);
+  }
+
+  function bindColorPalette() {
+    if (!app.dom.colorPalette || !app.dom.colorDotBtn) return;
+
+    app.dom.colorDotBtn.addEventListener("click", (event) => {
+      if (!isMobileView()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      document.body.classList.toggle("color-palette-open");
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!isMobileView()) return;
+      if (!document.body.classList.contains("color-palette-open")) return;
+      if (event.target.closest(".color-controls")) return;
+      document.body.classList.remove("color-palette-open");
+    });
+
+    app.dom.colorPalette.addEventListener("click", (event) => {
+      const dot = event.target.closest(".palette-dot");
+      if (!dot) return;
+      const colorName = dot.dataset.colorName;
+      if (!colorName) return;
+
+      if (isMobileView()) {
+        event.preventDefault();
+        event.stopPropagation();
+        app.activeDefaultColorName = colorName;
+        updateColorDot(null);
+        document.body.classList.remove("color-palette-open");
+        return;
+      }
+
+      app.activeColorName = colorName;
+      showColorCursor(colorName);
+      document.body.classList.add("is-color-painting");
+    });
+
+    app.dom.colorPalette.addEventListener("dragstart", (event) => {
+      const dot = event.target.closest(".palette-dot");
+      if (!dot || !event.dataTransfer) return;
+      event.dataTransfer.setData("text/plain", dot.dataset.colorName || "");
+      event.dataTransfer.setData("text/ruvia-color", dot.dataset.colorName || "");
+      event.dataTransfer.effectAllowed = "copy";
+      app.isColorDragging = true;
+      document.body.classList.add("is-color-dragging");
+    });
+
+    app.dom.colorPalette.addEventListener("dragend", () => {
+      app.isColorDragging = false;
+      document.body.classList.remove("is-color-dragging");
+    });
+
+    const handleColorDrop = (event) => {
+      const colorName =
+        event.dataTransfer?.getData("text/ruvia-color") ||
+        event.dataTransfer?.getData("text/plain");
+      if (!colorName) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const color = getColorByName(colorName);
+      if (!color) return;
+
+      const knotEl = event.target.closest(".knot");
+      if (!knotEl) return;
+
+      const knot = findKnot(knotEl.dataset.knotId);
+      if (!knot) return;
+
+      applyColorToKnot(knot, colorName);
+    };
+
+    const knotLayers = [app.dom.knotLayer, app.dom.trayKnotLayer].filter(Boolean);
+    for (const layer of knotLayers) {
+      layer.addEventListener("dragover", (event) => {
+        const types = Array.from(event.dataTransfer?.types || []);
+        if (types.includes("text/ruvia-color") || types.includes("text/plain")) {
+          event.preventDefault();
+        }
+      });
+
+      layer.addEventListener("drop", handleColorDrop);
+    }
+
+    app.dom.canvasPane.addEventListener("dragover", (event) => {
+      const types = Array.from(event.dataTransfer?.types || []);
+      if (types.includes("text/ruvia-color") || types.includes("text/plain")) {
+        event.preventDefault();
+      }
+    });
+    app.dom.canvasPane.addEventListener("drop", handleColorDrop);
+
+    window.addEventListener("mousemove", (event) => {
+      if (!app.activeColorName || !app.colorCursorEl) return;
+      app.colorCursorEl.style.left = `${event.clientX + 8}px`;
+      app.colorCursorEl.style.top = `${event.clientY + 8}px`;
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && app.activeColorName) {
+        clearColorPaintMode();
+      }
+    });
+
+    app.dom.canvasPane.addEventListener("click", (event) => {
+      if (!app.activeColorName) return;
+      if (event.target.closest(".knot")) return;
+      clearColorPaintMode();
+    });
+  }
+
+  function ensureColorCursor() {
+    if (app.colorCursorEl) return app.colorCursorEl;
+    const el = document.createElement("div");
+    el.className = "color-cursor";
+    document.body.appendChild(el);
+    app.colorCursorEl = el;
+    return el;
+  }
+
+  function showColorCursor(colorName) {
+    const color = getColorByName(colorName);
+    if (!color) return;
+    const el = ensureColorCursor();
+    el.style.background = color.hex;
+    el.style.display = "block";
+  }
+
+  function clearColorPaintMode() {
+    app.activeColorName = null;
+    document.body.classList.remove("is-color-painting");
+    if (app.colorCursorEl) app.colorCursorEl.style.display = "none";
+  }
+
+  function applyColorToKnot(knot, colorName) {
+    const color = getColorByName(colorName);
+    if (!color || !knot) return;
+    knot.meta = knot.meta || {};
+    knot.meta.color = colorName;
+    updateColorDot(knot);
+    touchDocumentUpdated();
+    saveState();
+    render();
+  }
+
+  function bindTrayCollapse() {
+    if (!app.dom.trayCollapseBtn) return;
+
+    app.dom.trayCollapseBtn.addEventListener("click", () => {
+      document.body.classList.toggle("tray-collapsed");
+      app.dom.trayCollapseBtn.textContent =
+        document.body.classList.contains("tray-collapsed") ? "❮" : "❯";
     });
   }
 
@@ -177,17 +476,61 @@
     app.zoom = clampZoom(value);
     saveZoom();
     applyZoom();
-    renderEdges();
   }
 
   function applyZoom() {
     const z = getEffectiveZoom();
+    const transform = `translate(${app.panX || 0}px, ${app.panY || 0}px) scale(${z})`;
     app.dom.knotLayer.style.transformOrigin = "0 0";
+    app.dom.knotLayer.style.transform = transform;
     app.dom.edgeLayer.style.transformOrigin = "0 0";
     app.dom.edgeToolLayer.style.transformOrigin = "0 0";
-    app.dom.knotLayer.style.transform = `scale(${z})`;
-    app.dom.edgeLayer.style.transform = `scale(${z})`;
-    app.dom.edgeToolLayer.style.transform = `scale(${z})`;
+    app.dom.edgeLayer.style.transform = "";
+    app.dom.edgeToolLayer.style.transform = "";
+    if (app.dom.trayKnotLayer) {
+      app.dom.trayKnotLayer.style.transform = "";
+    }
+    renderEdges();
+  }
+
+  function bindCanvasPan() {
+    app.dom.canvasPane.addEventListener("mousedown", (event) => {
+      if (app.isColorDragging) return;
+      if (event.button !== 0) return;
+      if (event.target.closest(".color-controls")) return;
+      if (event.target.closest(".knot")) return;
+      if (event.target.closest(".port")) return;
+      if (event.target.closest(".side-add")) return;
+      if (event.target.closest(".zoom-controls")) return;
+      if (event.target.closest(".edge-cut")) return;
+
+      event.preventDefault();
+
+      app.isPanning = true;
+      app.panStartX = event.clientX;
+      app.panStartY = event.clientY;
+      app.panOriginX = app.panX;
+      app.panOriginY = app.panY;
+
+      document.body.classList.add("is-panning");
+
+      const onMove = (moveEvent) => {
+        if (!app.isPanning) return;
+        app.panX = app.panOriginX + (moveEvent.clientX - app.panStartX);
+        app.panY = app.panOriginY + (moveEvent.clientY - app.panStartY);
+        applyZoom();
+      };
+
+      const onUp = () => {
+        app.isPanning = false;
+        document.body.classList.remove("is-panning");
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
   }
 
   function saveZoom() {
@@ -216,13 +559,14 @@
       btn.className = "template-btn";
       btn.type = "button";
       btn.textContent = labels[i];
-      btn.title = "New knot in stash";
+      btn.title = "New knot in tray";
       btn.addEventListener("click", () => {
         createKnot({
           contentExpanded: true,
-          x: app.dom.canvasPane.clientWidth / getEffectiveZoom() - 210,
-          y: 48,
-          zone: "stash"
+          x: 8,
+          y: countTrayKnots() * 36,
+          width: STASH_KNOT_SIZE.width,
+          zone: "tray"
         });
         touchDocumentUpdated();
         saveState();
@@ -234,173 +578,250 @@
   }
 
   function bindKnotEvents() {
-    app.dom.knotLayer.addEventListener("mousedown", (event) => {
-      if (event.button !== 0 || app.connectFrom) return;
 
-      const header = event.target.closest(".knot-header");
-      if (!header) return;
+    const knotLayers = [app.dom.knotLayer, app.dom.trayKnotLayer].filter(Boolean);
 
-      const knotEl = header.closest(".knot");
-      if (!knotEl) return;
-
-      if (event.target.closest(".delete-btn")) return;
-
-      const knot = findKnot(knotEl.dataset.knotId);
-      if (!knot) return;
-
-      app.selectedKnotId = knot.id;
-      app.dragKnot = knot;
-      bringKnotToFront(knot.id);
-
-      const wr = app.dom.canvasPane.getBoundingClientRect();
-      const kr = knotEl.getBoundingClientRect();
-
-      app.offsetX = (event.clientX - kr.left) / getEffectiveZoom();
-      app.offsetY = (event.clientY - kr.top) / getEffectiveZoom();
-
-      const onMove = (moveEvent) => {
-        const layout = getKnotLayout(app.state, knot.id);
-        layout.x = clamp(
-          (moveEvent.clientX - wr.left) / getEffectiveZoom() - app.offsetX,
-          0,
-          wr.width / getEffectiveZoom() - 40
-        );
-        layout.y = clamp(
-          (moveEvent.clientY - wr.top) / getEffectiveZoom() - app.offsetY,
-          0,
-          wr.height / getEffectiveZoom() - 20
-        );
-        layout.zone = isPointerInStash(moveEvent.clientX, moveEvent.clientY) ? "stash" : "canvas";
-        setKnotLayout(app.state, knot.id, layout);
-        app.dragHint = computeDragHint(knot);
-        render();
-        app.dom.stash.classList.toggle("is-active", layout.zone === "stash");
-      };
-
-      const onUp = () => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-
-        if (app.dragHint) applyDragHint(knot, app.dragHint);
-
-        app.dragKnot = null;
-        app.dragHint = null;
-        app.dom.stash.classList.remove("is-active");
-
-        touchDocumentUpdated();
-        saveState();
-        render();
-      };
-
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
-    });
-
-    app.dom.knotLayer.addEventListener("click", (event) => {
-      const knotEl = event.target.closest(".knot");
-
-      if (!knotEl) {
-        app.selectedKnotId = null;
-        render();
-        return;
-      }
-
-      const knot = findKnot(knotEl.dataset.knotId);
-      if (!knot) return;
-
-      app.selectedKnotId = knot.id;
-
-      if (event.target.classList.contains("delete-btn")) {
-        deleteKnot(knot.id);
-        touchDocumentUpdated();
-        saveState();
-        render();
-        return;
-      }
-
-      if (event.target.classList.contains("side-add")) {
-        const side = event.target.dataset.side;
-        createExtendedKnot(knot, side);
-        touchDocumentUpdated();
-        saveState();
-        render();
-        return;
-      }
-
-      if (
-        event.target.classList.contains("knot-title") ||
-        event.target.classList.contains("knot-content-input")
-      ) {
-        return;
-      }
-
-      render();
-    });
-
-    app.dom.knotLayer.addEventListener("input", (event) => {
-      const knotEl = event.target.closest(".knot");
-      if (!knotEl) return;
-
-      const knot = findKnot(knotEl.dataset.knotId);
-      if (!knot) return;
-
-      if (event.target.classList.contains("knot-content-input")) {
-        ensureKnotContent(knot).text = event.target.value;
-        touchDocumentUpdated();
-        saveState();
-      }
-    });
-
-    app.dom.knotLayer.addEventListener(
-      "focusin",
-      (event) => {
-        if (!event.target.classList.contains("knot-title")) return;
+    for (const layer of knotLayers) {
+      layer.addEventListener("mousemove", (event) => {
         const knotEl = event.target.closest(".knot");
+        const knot = knotEl ? findKnot(knotEl.dataset.knotId) : null;
+        app.hoverKnotId = knot ? knot.id : null;
+        updateColorDot(knot);
+      });
+
+      layer.addEventListener("mouseleave", () => {
+        app.hoverKnotId = null;
+        updateColorDot(null);
+      });
+
+      if (layer === app.dom.knotLayer) {
+        layer.addEventListener("mousemove", (event) => {
+          const knotEl = event.target.closest(".knot");
+          const current = layer.querySelector(".knot.hover-left, .knot.hover-right");
+          if (!knotEl) {
+            if (current) current.classList.remove("hover-left", "hover-right");
+            return;
+          }
+
+          if (current && current !== knotEl) {
+            current.classList.remove("hover-left", "hover-right");
+          }
+
+          const rect = knotEl.getBoundingClientRect();
+          const isLeft = event.clientX < rect.left + rect.width / 2;
+          knotEl.classList.toggle("hover-left", isLeft);
+          knotEl.classList.toggle("hover-right", !isLeft);
+        });
+
+        layer.addEventListener("mouseleave", () => {
+          const current = layer.querySelector(".knot.hover-left, .knot.hover-right");
+          if (current) current.classList.remove("hover-left", "hover-right");
+        });
+      }
+
+      layer.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        if (event.target.closest(".port")) return;
+
+        if (event.target.closest(".delete-btn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+
+        const sideBtn = event.target.closest(".side-add");
+        if (sideBtn && sideBtn.contains(event.target) && !app.connectFrom) {
+          event.preventDefault();
+          event.stopPropagation();
+          const knotEl = sideBtn.closest(".knot");
+          if (!knotEl) return;
+          const knot = findKnot(knotEl.dataset.knotId);
+          if (!knot) return;
+          createExtendedKnot(knot, sideBtn.dataset.side);
+          touchDocumentUpdated();
+          saveState();
+          render();
+          return;
+        }
+
+        if (app.connectFrom) return;
+
+        const header = event.target.closest(".knot-header");
+        if (!header) return;
+
+        const knotEl = header.closest(".knot");
         if (!knotEl) return;
+
         const knot = findKnot(knotEl.dataset.knotId);
         if (!knot) return;
 
-        event.target.textContent = getKnotEditingTitle(knot);
-      },
-      true
-    );
+        app.selectedKnotId = knot.id;
+        app.dragKnot = knot;
+        app.dragKnotLayer = layer;
+        bringKnotToFront(knot.id);
 
-    app.dom.knotLayer.addEventListener(
-      "focusout",
-      (event) => {
-        if (!event.target.classList.contains("knot-title")) return;
+        const kr = knotEl.getBoundingClientRect();
+        const sourceZone = getKnotLayout(app.state, knot.id).zone || "canvas";
+        const sourceScale = sourceZone === "tray" ? 1 : getEffectiveZoom();
+        app.offsetX = (event.clientX - kr.left) / sourceScale;
+        app.offsetY = (event.clientY - kr.top) / sourceScale;
+
+        const onMove = (moveEvent) => {
+          const layout = getKnotLayout(app.state, knot.id);
+          const inTray = isPointerInTray(moveEvent.clientX, moveEvent.clientY);
+          const nextZone = inTray ? "tray" : "canvas";
+
+          const zoneRect = nextZone === "tray"
+            ? app.dom.trayKnotLayer.getBoundingClientRect()
+            : app.dom.canvasPane.getBoundingClientRect();
+          const scale = nextZone === "tray" ? 1 : getEffectiveZoom();
+          const maxX = Math.max(0, zoneRect.width / scale - (layout.width || KNOT_SIZE.width));
+          const maxY = Math.max(0, zoneRect.height / scale - (layout.height || KNOT_SIZE.height));
+          const panX = nextZone === "tray" ? 0 : (app.panX || 0);
+          const panY = nextZone === "tray" ? 0 : (app.panY || 0);
+          layout.x = clamp((moveEvent.clientX - zoneRect.left - panX) / scale - app.offsetX, 0, maxX);
+          layout.y = clamp((moveEvent.clientY - zoneRect.top - panY) / scale - app.offsetY, 0, maxY);
+          layout.zone = nextZone;
+
+          setKnotLayout(app.state, knot.id, layout);
+          render();
+          app.dom.tray.classList.toggle("is-active", inTray);
+        };
+
+        const onUp = () => {
+          window.removeEventListener("mousemove", onMove);
+          window.removeEventListener("mouseup", onUp);
+
+          app.dragKnot = null;
+          app.dragKnotLayer = null;
+          app.dom.tray.classList.remove("is-active");
+
+          touchDocumentUpdated();
+          saveState();
+          render();
+        };
+
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+      });
+
+      layer.addEventListener("click", (event) => {
+        if (app.activeColorName) {
+          const targetKnotEl = event.target.closest(".knot");
+          if (targetKnotEl) {
+            event.preventDefault();
+            event.stopPropagation();
+            const paintKnot = findKnot(targetKnotEl.dataset.knotId);
+            if (paintKnot) {
+              applyColorToKnot(paintKnot, app.activeColorName);
+            }
+            clearColorPaintMode();
+            return;
+          }
+        }
+
         const knotEl = event.target.closest(".knot");
-        if (!knotEl) return;
+
+        if (!knotEl) {
+          app.selectedKnotId = null;
+          render();
+          return;
+        }
+
         const knot = findKnot(knotEl.dataset.knotId);
         if (!knot) return;
 
-        knot.title = (event.target.textContent || "").trim();
-        touchDocumentUpdated();
-        saveState();
+        app.selectedKnotId = knot.id;
+
+        if (event.target.closest(".delete-btn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteKnot(knot.id);
+          touchDocumentUpdated();
+          saveState();
+          render();
+          return;
+        }
+
+        if (
+          event.target.classList.contains("knot-title") ||
+          event.target.classList.contains("knot-content-input")
+        ) {
+          return;
+        }
+
         render();
-      },
-      true
-    );
+      });
 
-    app.dom.knotLayer.addEventListener("dblclick", (event) => {
-      const knotEl = event.target.closest(".knot");
-      if (!knotEl) return;
+      layer.addEventListener("input", (event) => {
+        const knotEl = event.target.closest(".knot");
+        if (!knotEl) return;
 
-      const knot = findKnot(knotEl.dataset.knotId);
-      if (!knot) return;
+        const knot = findKnot(knotEl.dataset.knotId);
+        if (!knot) return;
 
-      if (event.target.classList.contains("knot-header") || event.target.classList.contains("knot-title")) {
-        const meta = ensureKnotUiMeta(knot);
-        meta.contentExpanded = !meta.contentExpanded;
-        touchDocumentUpdated();
-        saveState();
-        render();
-      }
-    });
+        if (event.target.classList.contains("knot-content-input")) {
+          ensureKnotContent(knot).text = event.target.value;
+          event.target.style.height = "auto";
+          event.target.style.height = `${event.target.scrollHeight}px`;
+          touchDocumentUpdated();
+          saveState();
+        }
+      });
+
+      layer.addEventListener(
+        "focusin",
+        (event) => {
+          if (!event.target.classList.contains("knot-title")) return;
+          const knotEl = event.target.closest(".knot");
+          if (!knotEl) return;
+          const knot = findKnot(knotEl.dataset.knotId);
+          if (!knot) return;
+
+          event.target.textContent = getKnotEditingTitle(knot);
+        },
+        true
+      );
+
+      layer.addEventListener(
+        "focusout",
+        (event) => {
+          if (!event.target.classList.contains("knot-title")) return;
+          const knotEl = event.target.closest(".knot");
+          if (!knotEl) return;
+          const knot = findKnot(knotEl.dataset.knotId);
+          if (!knot) return;
+
+          knot.title = (event.target.textContent || "").trim();
+          touchDocumentUpdated();
+          saveState();
+          render();
+        },
+        true
+      );
+
+      layer.addEventListener("dblclick", (event) => {
+        const knotEl = event.target.closest(".knot");
+        if (!knotEl) return;
+
+        const knot = findKnot(knotEl.dataset.knotId);
+        if (!knot) return;
+
+        if (event.target.classList.contains("knot-header") || event.target.classList.contains("knot-title")) {
+          const meta = ensureKnotUiMeta(knot);
+          meta.contentExpanded = !meta.contentExpanded;
+          touchDocumentUpdated();
+          saveState();
+          render();
+        }
+      });
+    }
   }
 
   function bindConnectEvents() {
-    app.dom.knotLayer.addEventListener("mousedown", (event) => {
+    const knotLayers = [app.dom.knotLayer, app.dom.trayKnotLayer].filter(Boolean);
+    for (const layer of knotLayers) {
+      layer.addEventListener("mousedown", (event) => {
       const port = event.target.closest(".port");
       if (!port || event.button !== 0) return;
 
@@ -416,20 +837,21 @@
       if (!point) return;
 
       app.connectFrom = { knotId, side };
-      app.tempPoint = { x: point.x, y: point.y };
+      app.tempPoint = point;
       renderEdges();
 
       const onMove = (moveEvent) => {
         const rect = app.dom.canvasPane.getBoundingClientRect();
         app.tempPoint = {
-          x: (moveEvent.clientX - rect.left) / getEffectiveZoom(),
-          y: (moveEvent.clientY - rect.top) / getEffectiveZoom()
+          x: moveEvent.clientX - rect.left,
+          y: moveEvent.clientY - rect.top
         };
         renderEdges();
       };
 
       const onUp = (upEvent) => {
-        const targetPort = upEvent.target.closest(".port");
+        const targetAtPoint = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+        const targetPort = targetAtPoint?.closest?.(".port");
 
         if (targetPort) {
           const toEl = targetPort.closest(".knot");
@@ -439,6 +861,8 @@
             toKnotId: toEl?.dataset.knotId,
             toSide: targetPort.dataset.side
           });
+        } else {
+          createKnotFromPortDrop(upEvent);
         }
 
         app.connectFrom = null;
@@ -454,15 +878,21 @@
 
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
-    });
+      });
+    }
   }
 
   function bindEdgeEvents() {
+    function setHoveredEdge(edgeId) {
+      if (app.hoverEdgeId === edgeId) return;
+      app.hoverEdgeId = edgeId;
+      renderEdgeTools();
+    }
+
     app.dom.edgeLayer.addEventListener("mouseover", (event) => {
       const path = event.target.closest(".edge");
       if (!path || !path.dataset.edgeId || path.classList.contains("temp")) return;
-      app.hoverEdgeId = path.dataset.edgeId;
-      renderEdgeTools();
+      setHoveredEdge(path.dataset.edgeId);
     });
 
     app.dom.edgeLayer.addEventListener("mouseout", (event) => {
@@ -479,33 +909,42 @@
         return;
       }
 
-      app.hoverEdgeId = null;
-      renderEdgeTools();
+      setHoveredEdge(null);
     });
 
     app.dom.edgeToolLayer.addEventListener("mouseover", (event) => {
       const btn = event.target.closest(".edge-cut");
       if (!btn || !btn.dataset.edgeId) return;
-      app.hoverEdgeId = btn.dataset.edgeId;
-      renderEdgeTools();
+      setHoveredEdge(btn.dataset.edgeId);
     });
 
     app.dom.edgeToolLayer.addEventListener("mouseout", (event) => {
       const btn = event.target.closest(".edge-cut");
       if (!btn || !btn.dataset.edgeId) return;
-      app.hoverEdgeId = null;
-      renderEdgeTools();
+      const related = event.relatedTarget;
+      if (
+        related &&
+        related.closest &&
+        ((related.closest(".edge-cut") && related.closest(".edge-cut").dataset.edgeId === btn.dataset.edgeId) ||
+          (related.closest(".edge") && related.closest(".edge").dataset.edgeId === btn.dataset.edgeId))
+      ) {
+        return;
+      }
+      setHoveredEdge(null);
     });
 
-    app.dom.edgeToolLayer.addEventListener("click", (event) => {
+    app.dom.edgeToolLayer.addEventListener("mousedown", (event) => {
       const btn = event.target.closest(".edge-cut");
       if (!btn || !btn.dataset.edgeId) return;
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
       const edgeId = btn.dataset.edgeId;
       app.state.edges = app.state.edges.filter((edge) => edge.id !== edgeId);
       for (const menu of app.state.menus) {
         menu.edgeIds = menu.edgeIds.filter((id) => id !== edgeId);
       }
-      app.hoverEdgeId = null;
+      setHoveredEdge(null);
       touchDocumentUpdated();
       saveState();
       render();
@@ -524,14 +963,19 @@
     const layout = {
       x: options.x ?? 140 + app.state.knots.length * 12,
       y: options.y ?? 90 + app.state.knots.length * 10,
-      width: Number.isFinite(options.width) ? options.width : 132,
-      height: Number.isFinite(options.height) ? options.height : 42,
+      width: Number.isFinite(options.width) ? options.width : KNOT_SIZE.width,
+      height: Number.isFinite(options.height) ? options.height : null,
       zone: options.zone ?? "canvas",
       zIndex: nextZIndex()
     };
 
     if (options.parentId != null) {
       knot.meta.parentId = String(options.parentId);
+    }
+    if (options.colorName) {
+      knot.meta.color = options.colorName;
+    } else if (app.activeDefaultColorName) {
+      knot.meta.color = app.activeDefaultColorName;
     }
     const uiMeta = ensureKnotUiMeta(knot);
     if (options.contentExpanded !== undefined) {
@@ -553,15 +997,18 @@
 
   function createExtendedKnot(sourceKnot, side) {
     const gapX = 92;
-    const gapY = 0;
     const srcLayout = getKnotLayout(app.state, sourceKnot.id);
+    const branchIndex = app.state.edges.filter((e) =>
+      side === "right" ? e.from === sourceKnot.id : e.to === sourceKnot.id
+    ).length;
+    const staggerY = branchIndex * 32;
 
     const newKnot = createKnot({
       parentKnot: sourceKnot,
-      parentId: sourceKnot.id,
       contentExpanded: true,
       x: side === "right" ? srcLayout.x + gapX : Math.max(0, srcLayout.x - gapX),
-      y: srcLayout.y + gapY,
+      y: srcLayout.y + staggerY,
+      width: KNOT_SIZE.width,
       zone: srcLayout.zone
     });
 
@@ -605,27 +1052,105 @@
 
   function tryCreateEdge({ fromKnotId, fromSide, toKnotId, toSide }) {
     if (!toKnotId || fromKnotId === toKnotId) return;
-    if (fromSide !== "right" || toSide !== "left") return;
-
-    if (app.state.edges.some((e) => e.from === fromKnotId && e.to === toKnotId)) {
-      return;
-    }
-
     const from = findKnot(fromKnotId);
     const to = findKnot(toKnotId);
     if (!from || !to) return;
+    if (getKnotLayout(app.state, from.id).zone !== "canvas") return;
+    if (getKnotLayout(app.state, to.id).zone !== "canvas") return;
 
-    ensureEdge(app.state, fromKnotId, toKnotId, "link");
+    // 從 right 拉出：source -> target
+    if (fromSide === "right") {
+      ensureEdge(app.state, fromKnotId, toKnotId, "link");
+      return;
+    }
+
+    // 從 left 拉出：target -> source
+    if (fromSide === "left") {
+      ensureEdge(app.state, toKnotId, fromKnotId, "link");
+      return;
+    }
+  }
+
+  function createKnotFromPortDrop(event) {
+    if (!app.connectFrom) return;
+
+    const sourceKnot = findKnot(app.connectFrom.knotId);
+    if (!sourceKnot) return;
+
+    const rect = app.dom.canvasPane.getBoundingClientRect();
+    const z = getEffectiveZoom();
+
+    const x = (event.clientX - rect.left - (app.panX || 0)) / z;
+    const y = (event.clientY - rect.top - (app.panY || 0)) / z;
+
+    const newKnot = createKnot({
+      parentKnot: app.connectFrom.side === "right" ? sourceKnot : null,
+      contentExpanded: true,
+      x: Math.max(0, x),
+      y: Math.max(0, y),
+      width: KNOT_SIZE.width,
+      height: KNOT_SIZE.height,
+      zone: "canvas"
+    });
+
+    if (app.connectFrom.side === "right") {
+      ensureEdge(app.state, sourceKnot.id, newKnot.id, "link");
+    } else {
+      ensureEdge(app.state, newKnot.id, sourceKnot.id, "link");
+    }
+
+    bringKnotToFront(newKnot.id);
+    app.selectedKnotId = newKnot.id;
   }
 
   function render() {
     renderKnots();
     renderEdges();
+    renderMenuPanel();
+    requestAnimationFrame(autoFitTextareas);
+  }
+
+  function enforceMobileTrayLayout() {
+    if (!window.matchMedia("(max-width: 720px)").matches) return;
+    if (!app.dom.trayKnotLayer) return;
+
+    const trayRect = app.dom.trayKnotLayer.getBoundingClientRect();
+    if (!trayRect.width || !trayRect.height) return;
+
+    const trayKnotIds = app.state.knots
+      .filter((knot) => getKnotLayout(app.state, knot.id).zone === "tray")
+      .map((knot) => knot.id);
+
+    if (!trayKnotIds.length) return;
+
+    const minY = 0;
+    const visualWidth = 192;
+    const visualHeight = 40;
+    const maxX = Math.max(0, trayRect.width - visualWidth);
+    const maxY = Math.max(0, trayRect.height - visualHeight);
+
+    const hasOverflow = trayKnotIds.some((knotId) => {
+      const layout = getKnotLayout(app.state, knotId);
+      return layout.x < 0 || layout.x > maxX || layout.y < minY || layout.y > maxY;
+    });
+
+    if (!hasOverflow) return;
+
+    for (const knotId of trayKnotIds) {
+      const layout = getKnotLayout(app.state, knotId);
+      setKnotLayout(app.state, knotId, {
+        ...layout,
+        x: maxX > 0 ? Math.random() * maxX : 0,
+        y: maxY > minY ? minY + Math.random() * (maxY - minY) : 0,
+        zone: "tray"
+      });
+    }
   }
 
   function renderKnots() {
     const visibleIds = new Set(getVisibleKnotIds());
-    const frag = document.createDocumentFragment();
+    const canvasFrag = document.createDocumentFragment();
+    const trayFrag = document.createDocumentFragment();
 
     for (const knot of app.state.knots) {
       if (!visibleIds.has(knot.id)) continue;
@@ -637,9 +1162,23 @@
       const knotEl = document.createElement("article");
       knotEl.className = "knot";
       knotEl.dataset.knotId = knot.id;
+      const color = getColorByName(knot.meta?.color);
+      if (color) {
+        knotEl.dataset.color = color.name;
+        knotEl.style.setProperty("--knot-accent", color.hex);
+        if (color.name === "ruvia") {
+          knotEl.style.setProperty("--knot-bg-accent", "var(--knot-bg)");
+        } else {
+          knotEl.style.setProperty("--knot-bg-accent", `${color.hex}26`);
+        }
+      } else {
+        delete knotEl.dataset.color;
+        knotEl.style.removeProperty("--knot-accent");
+        knotEl.style.removeProperty("--knot-bg-accent");
+      }
       knotEl.style.left = `${layout.x}px`;
       knotEl.style.top = `${layout.y}px`;
-      knotEl.style.width = `${layout.width || 132}px`;
+      knotEl.style.width = `${layout.width || KNOT_SIZE.width}px`;
       knotEl.style.zIndex = String(layout.zIndex || 1);
 
       if (contentExpanded) knotEl.classList.add("content-expanded");
@@ -669,10 +1208,10 @@
 
       const textInput = document.createElement("textarea");
       textInput.className = "knot-content-input";
-      textInput.value = ensureKnotContent(knot).text;
+      const contentText = ensureKnotContent(knot).text;
+      textInput.value = contentText;
       textInput.placeholder = "content";
-      textInput.style.height = `${layout.height || 42}px`;
-      contentWrap.append(textInput);
+      textInput.style.height = "auto";
 
       const leftPort = document.createElement("div");
       leftPort.className = "port left";
@@ -696,21 +1235,31 @@
       addRight.title = "extend right";
       addRight.textContent = "+";
 
-      knotEl.append(header, contentWrap, leftPort, rightPort, addLeft, addRight);
-      frag.append(knotEl);
+      if (layout.zone === "tray") {
+        if (contentText.trim() !== "") {
+          contentWrap.append(textInput);
+          knotEl.append(header, contentWrap);
+        } else {
+          knotEl.classList.add("is-empty-content");
+          knotEl.append(header);
+        }
+        trayFrag.append(knotEl);
+      } else {
+        if (contentText.trim() !== "") {
+          contentWrap.append(textInput);
+          knotEl.append(header, contentWrap, leftPort, rightPort, addLeft, addRight);
+        } else {
+          knotEl.classList.add("is-empty-content");
+          knotEl.append(header, leftPort, rightPort, addLeft, addRight);
+        }
+        canvasFrag.append(knotEl);
+      }
     }
 
-    if (app.dragHint) {
-      const hint = document.createElement("div");
-      hint.className = "drag-hint";
-      hint.style.left = `${app.dragHint.x}px`;
-      hint.style.top = `${app.dragHint.y}px`;
-      hint.style.width = `${app.dragHint.w}px`;
-      hint.style.height = `${app.dragHint.h}px`;
-      frag.append(hint);
+    app.dom.knotLayer.replaceChildren(canvasFrag);
+    if (app.dom.trayKnotLayer) {
+      app.dom.trayKnotLayer.replaceChildren(trayFrag);
     }
-
-    app.dom.knotLayer.replaceChildren(frag);
     bindKnotResizeObservers();
   }
 
@@ -719,7 +1268,6 @@
 
     if (!app.resizeObserver) {
       app.resizeObserver = new ResizeObserver((entries) => {
-        let changed = false;
         for (const entry of entries) {
           const textarea = entry.target;
           const knotEl = textarea.closest(".knot");
@@ -727,46 +1275,26 @@
 
           const knot = findKnot(knotEl.dataset.knotId);
           if (!knot) continue;
-
-          const nextWidth = Math.round(entry.contentRect.width);
-          const nextHeight = Math.round(entry.contentRect.height);
-
-          if (
-            !Number.isFinite(nextWidth) ||
-            !Number.isFinite(nextHeight) ||
-            nextWidth <= 0 ||
-            nextHeight <= 0
-          ) {
-            continue;
-          }
-
-          const clampedWidth = Math.max(96, nextWidth);
-          const clampedHeight = Math.max(10, nextHeight);
-
-          const layout = getKnotLayout(app.state, knot.id);
-          if (layout.width === clampedWidth && layout.height === clampedHeight) {
-            continue;
-          }
-
-          layout.width = clampedWidth;
-          layout.height = clampedHeight;
-          knotEl.style.width = `${layout.width}px`;
-          textarea.style.height = `${layout.height}px`;
-          changed = true;
         }
-
-        if (changed) {
-          touchDocumentUpdated();
-          saveState();
-          renderEdges();
-        }
+        renderEdges();
       });
     }
 
     app.resizeObserver.disconnect();
-    const textareas = app.dom.knotLayer.querySelectorAll(".knot-content-input");
+    const textareas = [
+      ...app.dom.knotLayer.querySelectorAll(".knot-content-input"),
+      ...(app.dom.trayKnotLayer ? app.dom.trayKnotLayer.querySelectorAll(".knot-content-input") : [])
+    ];
     for (const textarea of textareas) {
       app.resizeObserver.observe(textarea);
+    }
+  }
+
+  function autoFitTextareas() {
+    const inputs = document.querySelectorAll(".knot-content-input");
+    for (const input of inputs) {
+      input.style.height = "auto";
+      input.style.height = `${input.scrollHeight}px`;
     }
   }
 
@@ -774,9 +1302,9 @@
     const svg = app.dom.edgeLayer;
     const wr = app.dom.canvasPane.getBoundingClientRect();
 
-    svg.setAttribute("width", String(wr.width / getEffectiveZoom()));
-    svg.setAttribute("height", String(wr.height / getEffectiveZoom()));
-    svg.setAttribute("viewBox", `0 0 ${wr.width / getEffectiveZoom()} ${wr.height / getEffectiveZoom()}`);
+    svg.setAttribute("width", String(wr.width));
+    svg.setAttribute("height", String(wr.height));
+    svg.setAttribute("viewBox", `0 0 ${wr.width} ${wr.height}`);
 
     const visibleIds = new Set(getVisibleKnotIds());
     const paths = [];
@@ -786,6 +1314,8 @@
     for (const edge of app.state.edges) {
       if (!activeEdgeIds.has(edge.id)) continue;
       if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) continue;
+      if (getKnotLayout(app.state, edge.from).zone !== "canvas") continue;
+      if (getKnotLayout(app.state, edge.to).zone !== "canvas") continue;
 
       const from = getPortCenter(edge.from, "right");
       const to = getPortCenter(edge.to, "left");
@@ -849,7 +1379,11 @@
   }
 
   function getPortCenter(knotId, side) {
-    const knotEl = app.dom.knotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`);
+    const knotEl =
+      app.dom.knotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`) ||
+      (app.dom.trayKnotLayer
+        ? app.dom.trayKnotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`)
+        : null);
     if (!knotEl) return null;
 
     const port = knotEl.querySelector(`.port.${side}`);
@@ -859,8 +1393,8 @@
     const rect = port.getBoundingClientRect();
 
     return {
-      x: (rect.left - wr.left + rect.width / 2) / getEffectiveZoom(),
-      y: (rect.top - wr.top + rect.height / 2) / getEffectiveZoom()
+      x: rect.left - wr.left + rect.width / 2,
+      y: rect.top - wr.top + rect.height / 2
     };
   }
 
@@ -930,80 +1464,27 @@
     }
   }
 
-  function computeDragHint(knot) {
-    const layout = getKnotLayout(app.state, knot.id);
-    let nearest = null;
-    const snap = 30;
-
-    for (const target of app.state.knots) {
-      if (target.id === knot.id) continue;
-      if (!getKnotIdsForMenu(app.state, app.state.ui.activeMenuId).includes(target.id)) continue;
-
-      const tl = getKnotLayout(app.state, target.id);
-      const belowDx = Math.abs(layout.x - tl.x);
-      const belowDy = Math.abs(layout.y - (tl.y + 46));
-      const rightDx = Math.abs(layout.x - (tl.x + 128));
-      const rightDy = Math.abs(layout.y - tl.y);
-
-      if (belowDx < snap && belowDy < snap) {
-        nearest = {
-          mode: "child",
-          targetId: target.id,
-          x: tl.x,
-          y: tl.y + 42,
-          w: 112,
-          h: 16
-        };
-      } else if (!nearest && rightDx < snap && rightDy < snap) {
-        nearest = {
-          mode: "link",
-          targetId: target.id,
-          x: tl.x + 124,
-          y: tl.y,
-          w: 56,
-          h: 14
-        };
-      }
-    }
-
-    return nearest;
-  }
-
-  function applyDragHint(knot, hint) {
-    const target = findKnot(hint.targetId);
-    if (!target) return;
-    const layout = getKnotLayout(app.state, knot.id);
-
-    if (hint.mode === "child") {
-      knot.meta = knot.meta || {};
-      knot.meta.parentId = target.id;
-      layout.x = getKnotLayout(app.state, target.id).x;
-      layout.y = getKnotLayout(app.state, target.id).y + 46;
-      ensureEdge(app.state, target.id, knot.id, "link");
-    } else if (hint.mode === "link") {
-      if (knot.meta && knot.meta.parentId === target.id) {
-        delete knot.meta.parentId;
-      }
-      layout.x = getKnotLayout(app.state, target.id).x + 128;
-      layout.y = getKnotLayout(app.state, target.id).y;
-      ensureEdge(app.state, target.id, knot.id, "link");
-    }
-    setKnotLayout(app.state, knot.id, layout);
-  }
-
   function saveState() {
     syncHierarchyFiles(app.state);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(app.state));
   }
 
+  /** 清除本機與 Ruvia 相關的 localStorage（工作區、舊版存檔、主題、縮放） */
+  function clearRuviaLocalStorage() {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.removeItem(THEME_KEY);
+    localStorage.removeItem(ZOOM_KEY);
+  }
+
   function loadState() {
     try {
       let raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) raw = localStorage.getItem("ruvia.v1.state");
-      if (!raw) return createDefaultState();
+      if (!raw) raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (!raw) return buildShowcaseInitialState();
       return loadFromImport(JSON.parse(raw));
     } catch (_error) {
-      return createDefaultState();
+      return buildShowcaseInitialState();
     }
   }
 
@@ -1039,6 +1520,53 @@
     return btn;
   }
 
+  function createFallbackMenuRow(opts = {}) {
+    const row = document.createElement("div");
+    row.className = `menu-item${opts.active ? " active" : ""}`;
+
+    const prefix = document.createElement("span");
+    prefix.className = "menu-item-prefix";
+    prefix.textContent = "➢";
+
+    const name = document.createElement("span");
+    name.className = "menu-item-name";
+    name.textContent = opts.label || "";
+
+    row.append(prefix, name);
+    if (typeof opts.onClick === "function") {
+      row.addEventListener("click", opts.onClick);
+    }
+    return row;
+  }
+
+  function renderMenuPanel() {
+    const list = document.getElementById("menu-panel-list");
+    if (!list) return;
+
+    const frag = document.createDocumentFragment();
+
+    for (const menu of app.state.menus) {
+      const rowOpts = {
+        active: menu.id === app.state.ui.activeMenuId,
+        label: menu.name || "Untitled tree",
+        onClick: () => {
+          app.state.ui.activeMenuId = menu.id;
+          if (window.matchMedia("(max-width: 720px)").matches) {
+            document.body.classList.remove("menu-drawer-open");
+          }
+          saveState();
+          render();
+        }
+      };
+
+      const row = createFallbackMenuRow(rowOpts);
+
+      frag.append(row);
+    }
+
+    list.replaceChildren(frag);
+  }
+
   function edgeStroke() {
     if (document.body.classList.contains("white-mode")) {
       return "rgba(150,150,150,0.22)";
@@ -1066,15 +1594,22 @@
     setKnotLayout(app.state, knotId, layout);
   }
 
-  function isPointerInStash(clientX, clientY) {
-    const stashRect = app.dom.stash.getBoundingClientRect();
+  function isPointerInTray(clientX, clientY) {
+    const trayRect = app.dom.tray.getBoundingClientRect();
 
     return (
-      clientX >= stashRect.left &&
-      clientX <= stashRect.right &&
-      clientY >= stashRect.top &&
-      clientY <= stashRect.bottom
+      clientX >= trayRect.left &&
+      clientX <= trayRect.right &&
+      clientY >= trayRect.top &&
+      clientY <= trayRect.bottom
     );
+  }
+
+  function getZoneRect(zone) {
+    if (zone === "tray") {
+      return app.dom.tray.getBoundingClientRect();
+    }
+    return app.dom.canvasPane.getBoundingClientRect();
   }
 
   function uid(prefix) {
@@ -1201,7 +1736,7 @@
         folders: [{ id: folderId, name: "root", menuIds: [menu.id] }]
       },
       menus: [menu],
-      packs: [],
+      roots: [],
       knots: [],
       edges: [],
       ui: {
@@ -1213,6 +1748,79 @@
         structureText: ""
       }
     };
+  }
+
+  /** 無 localStorage 或 Reset 時：首屏示例樹（knot-a 為樞紐，三叉 + 再長） */
+  function buildShowcaseInitialState() {
+    const state = createDefaultState();
+    const menu = getActiveMenu(state);
+    if (!menu) return state;
+
+    const uiOpen = { contentExpanded: true };
+    const specs = [
+      {
+        id: "demo_a",
+        title: "knot-a",
+        text: "messy thought\n\n三叉：\n\n再长：",
+        layout: { x: 52, y: 88, width: 148, height: 92, zone: "canvas", zIndex: 1 }
+      },
+      {
+        id: "demo_b",
+        title: "knot-b",
+        text: "system model",
+        layout: { x: 268, y: 24, width: 136, height: 46, zone: "canvas", zIndex: 2 }
+      },
+      {
+        id: "demo_c",
+        title: "knot-c",
+        text: "writing surface",
+        layout: { x: 268, y: 104, width: 136, height: 46, zone: "canvas", zIndex: 3 }
+      },
+      {
+        id: "demo_d",
+        title: "knot-d",
+        text: "execution path",
+        layout: { x: 268, y: 184, width: 136, height: 46, zone: "canvas", zIndex: 4 }
+      },
+      {
+        id: "demo_e",
+        title: "knot-e",
+        text: "rules / relations",
+        layout: { x: 468, y: 52, width: 136, height: 46, zone: "canvas", zIndex: 5 }
+      },
+      {
+        id: "demo_f",
+        title: "knot-f",
+        text: "prompt / text",
+        layout: { x: 468, y: 112, width: 136, height: 46, zone: "canvas", zIndex: 6 }
+      },
+      {
+        id: "demo_g",
+        title: "knot-g",
+        text: "next action",
+        layout: { x: 468, y: 172, width: 136, height: 46, zone: "canvas", zIndex: 7 }
+      }
+    ];
+
+    for (const s of specs) {
+      state.knots.push({
+        id: s.id,
+        title: s.title,
+        content: { text: s.text },
+        meta: { ui: { ...uiOpen } }
+      });
+      attachKnotToMenu(state, menu.id, s.id);
+      setKnotLayout(state, s.id, s.layout);
+    }
+
+    const hub = "demo_a";
+    for (const leaf of ["demo_b", "demo_c", "demo_d", "demo_e", "demo_f", "demo_g"]) {
+      ensureEdge(state, hub, leaf, "link");
+    }
+
+    touchDocumentUpdated(state);
+    syncHierarchyFiles(state);
+    return state;
   }
 
   function createKnotModel(partial = {}) {
@@ -1234,10 +1842,10 @@
     };
   }
 
-  function createPack(partial = {}) {
+  function createRoot(partial = {}) {
     return {
-      id: partial.id ?? uid("p"),
-      name: partial.name ?? "Pack",
+      id: partial.id ?? uid("r"),
+      name: partial.name ?? "Root",
       menuIds: Array.isArray(partial.menuIds) ? partial.menuIds.slice() : [],
       meta: partial.meta && typeof partial.meta === "object" ? structuredClone(partial.meta) : {}
     };
@@ -1282,10 +1890,21 @@
             meta: m.meta && typeof m.meta === "object" ? structuredClone(m.meta) : {}
           }))
         : [],
-      packs: Array.isArray(input.packs)
-        ? input.packs.map((p) => ({
-            id: String(p.id || uid("p")),
-            name: String(p.name || "Pack"),
+      roots: Array.isArray(input.roots)
+        ? input.roots.map((r) => ({
+            id: String(r.id || uid("r")),
+            name: String(r.name || "Root"),
+            menuIds: Array.isArray(r.menuIds)
+              ? r.menuIds.map(String)
+              : Array.isArray(r.listIds)
+                ? r.listIds.map(String)
+                : [],
+            meta: r.meta && typeof r.meta === "object" ? structuredClone(r.meta) : {}
+          }))
+        : Array.isArray(input.packs)
+          ? input.packs.map((p) => ({
+            id: String(p.id || uid("r")),
+            name: String(p.name || "Root"),
             menuIds: Array.isArray(p.menuIds)
               ? p.menuIds.map(String)
               : Array.isArray(p.listIds)
@@ -1293,7 +1912,7 @@
                 : [],
             meta: p.meta && typeof p.meta === "object" ? structuredClone(p.meta) : {}
           }))
-        : [],
+          : [],
       knots: Array.isArray(input.knots)
         ? input.knots.map((k) => normalizeKnotIn(k))
         : [],
@@ -1376,9 +1995,9 @@
         out.ui.layout.knots[id] = {
           x: Number.isFinite(n.x) ? n.x : 120,
           y: Number.isFinite(n.y) ? n.y : 80,
-          width: Number.isFinite(n.noteWidth) ? n.noteWidth : 132,
-          height: Number.isFinite(n.noteHeight) ? n.noteHeight : 42,
-          zone: n.zone === "stash" ? "stash" : "canvas",
+          width: Number.isFinite(n.noteWidth) ? n.noteWidth : KNOT_SIZE.width,
+          height: Number.isFinite(n.noteHeight) ? n.noteHeight : KNOT_SIZE.height,
+          zone: n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas",
           zIndex: Number.isFinite(n.zIndex) ? n.zIndex : i + 1
         };
       });
@@ -1404,6 +2023,7 @@
       k.title = normalizeLegacyNodeTitle(k.title, i);
     });
 
+    normalizeAllLayoutSizes(out);
     syncHierarchyFromMenus(out);
     validateActiveMenu(out);
     return out;
@@ -1436,11 +2056,11 @@
     const knotIds = new Set(doc.knots.map((k) => k.id));
     const edgeIds = new Set(doc.edges.map((e) => e.id));
     const menuIds = new Set(doc.menus.map((m) => m.id));
-    const packIds = new Set(doc.packs.map((p) => p.id));
+    const rootIds = new Set(doc.roots.map((r) => r.id));
 
     if (new Set(doc.knots.map((k) => k.id)).size !== doc.knots.length) return "duplicate knot id";
     if (new Set(doc.edges.map((e) => e.id)).size !== doc.edges.length) return "duplicate edge id";
-    if (new Set(doc.packs.map((p) => p.id)).size !== doc.packs.length) return "duplicate pack id";
+    if (new Set(doc.roots.map((r) => r.id)).size !== doc.roots.length) return "duplicate root id";
     if (new Set(doc.menus.map((m) => m.id)).size !== doc.menus.length) return "duplicate menu id";
 
     for (const e of doc.edges) {
@@ -1456,9 +2076,9 @@
       }
     }
 
-    for (const p of doc.packs) {
-      for (const id of p.menuIds) {
-        if (!menuIds.has(id)) return "pack menu ref";
+    for (const r of doc.roots) {
+      for (const id of r.menuIds) {
+        if (!menuIds.has(id)) return "root menu ref";
       }
     }
 
@@ -1511,9 +2131,9 @@
       state.ui.layout.knots[id] = {
         x: Number.isFinite(n.x) ? n.x : 120 + i * 12,
         y: Number.isFinite(n.y) ? n.y : 80 + i * 10,
-        width: Number.isFinite(n.noteWidth) ? n.noteWidth : 132,
-        height: Number.isFinite(n.noteHeight) ? n.noteHeight : 42,
-        zone: n.zone === "stash" ? "stash" : "canvas",
+        width: Number.isFinite(n.noteWidth) ? n.noteWidth : KNOT_SIZE.width,
+        height: Number.isFinite(n.noteHeight) ? n.noteHeight : KNOT_SIZE.height,
+        zone: n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas",
         zIndex: Number.isFinite(n.zIndex) ? n.zIndex : i + 1
       };
     }
@@ -1540,6 +2160,7 @@
 
     state.document.meta = { ...state.document.meta, legacy: metaLegacy };
     state.ui.activeMenuId = mainMenu.id;
+    normalizeAllLayoutSizes(state);
     syncHierarchyFromMenus(state);
     syncHierarchyFiles(state);
     return state;
@@ -1586,16 +2207,36 @@
     state.ui.layout.knots[knotId] = state.ui.layout.knots[knotId] || {
       x: 120,
       y: 80,
-      width: 132,
-      height: 42,
+      width: KNOT_SIZE.width,
+      height: null,
       zone: "canvas",
       zIndex: 1
     };
     return state.ui.layout.knots[knotId];
   }
 
+  function countTrayKnots() {
+    return app.state.knots.filter((k) => {
+      const layout = getKnotLayout(app.state, k.id);
+      return layout.zone === "tray";
+    }).length;
+  }
+
+  function normalizeAllLayoutSizes(state) {
+    const layouts = state?.ui?.layout?.knots;
+    if (!layouts || typeof layouts !== "object") return;
+    for (const id of Object.keys(layouts)) {
+      const layout = layouts[id];
+      if (!layout || typeof layout !== "object") continue;
+      layout.width = KNOT_SIZE.width;
+      if (!Number.isFinite(layout.height)) layout.height = null;
+    }
+  }
+
   function setKnotLayout(state, knotId, patch) {
     const cur = { ...getKnotLayout(state, knotId), ...patch };
+    cur.width = KNOT_SIZE.width;
+    if (!Number.isFinite(cur.height)) cur.height = null;
     state.ui.layout.knots[knotId] = cur;
     return cur;
   }
@@ -1680,7 +2321,7 @@
     return String(t).replace(/\s+/g, " ").slice(0, 40);
   }
 
-  function touchDocumentUpdated(state) {
+  function touchDocumentUpdated(state = app.state) {
     state.document.updatedAt = isoNow();
   }
 

@@ -1,0 +1,81 @@
+{
+  "spec": "ruvia-doc/0.1",
+  "document": {
+    "id": "doc_root2",
+    "title": "Demo Root 2",
+    "createdAt": "2026-04-26T10:00:00.000Z",
+    "updatedAt": "2026-04-26T10:00:00.000Z",
+    "meta": {}
+  },
+  "hierarchy": {
+    "folders": [
+      {
+        "id": "f_root2",
+        "name": "root",
+        "menuIds": [
+          "m_topic"
+        ]
+      }
+    ]
+  },
+  "menus": [
+    {
+      "id": "m_topic",
+      "name": "Topic Tree",
+      "knotIds": [
+        "k1",
+        "k2"
+      ],
+      "edgeIds": [
+        "e1"
+      ],
+      "meta": {}
+    }
+  ],
+  "roots": [
+    {
+      "id": "r_topic",
+      "name": "root2",
+      "menuIds": [
+        "m_topic"
+      ],
+      "meta": {}
+    }
+  ],
+  "knots": [
+    {
+      "id": "k1",
+      "title": "knot-a",
+      "content": { "text": "root idea" },
+      "meta": { "ui": { "contentExpanded": true } }
+    },
+    {
+      "id": "k2",
+      "title": "knot-b",
+      "content": { "text": "child idea" },
+      "meta": { "ui": { "contentExpanded": true } }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "from": "k1",
+      "to": "k2",
+      "relation": "link",
+      "meta": {}
+    }
+  ],
+  "ui": {
+    "activeMenuId": "m_topic",
+    "layout": {
+      "knots": {
+        "k1": { "x": 80, "y": 80, "width": 96, "height": 28, "zone": "canvas", "zIndex": 1 },
+        "k2": { "x": 280, "y": 152, "width": 96, "height": 28, "zone": "canvas", "zIndex": 2 }
+      }
+    }
+  },
+  "files": {
+    "menuText": "",
+    "structureText": ""
+  }
+}

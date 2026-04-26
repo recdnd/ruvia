@@ -1,0 +1,52 @@
+{
+  "spec": "ruvia-doc/0.1",
+  "document": {
+    "id": "doc_my_project",
+    "title": "My Project",
+    "createdAt": "2026-04-26T10:00:00.000Z",
+    "updatedAt": "2026-04-26T10:00:00.000Z",
+    "meta": {}
+  },
+  "hierarchy": {
+    "folders": [
+      {
+        "id": "f_my_project",
+        "name": "root",
+        "menuIds": [
+          "m_main"
+        ]
+      }
+    ]
+  },
+  "menus": [
+    {
+      "id": "m_main",
+      "name": "Main",
+      "knotIds": [],
+      "edgeIds": [],
+      "meta": {}
+    }
+  ],
+  "roots": [
+    {
+      "id": "r_my_project",
+      "name": "my-project",
+      "menuIds": [
+        "m_main"
+      ],
+      "meta": {}
+    }
+  ],
+  "knots": [],
+  "edges": [],
+  "ui": {
+    "activeMenuId": "m_main",
+    "layout": {
+      "knots": {}
+    }
+  },
+  "files": {
+    "menuText": "",
+    "structureText": ""
+  }
+}
