@@ -11,6 +11,28 @@
 
 ## 紀錄
 
+### 2026-04-27 — Future：PWA / ruvia-stem（先記錄，不立即實作）
+
+**Prompt 要點**
+
+- 未來可考慮做 PWA / 本地 workspace。
+- 預設本地資料夾名：`ruvia-stem`，集中管理多個 `.root`。
+- 理想形態：
+  - `ruvia-stem/`
+  - `roots/`
+  - `project-a.root`
+  - `ml-notes.root`
+  - `stats.root`
+- 當前階段先不實作資料夾讀取/監聽（瀏覽器權限限制 + 複雜度較高）。
+- 先維持輕量網頁工具形態。
+
+**落實摘要**
+
+- 已記錄為 future 範圍，不納入本輪實作。
+- 本輪優先落地：多 `.root` 匯入 + menu 面板依 menu 數量自動顯隱。
+
+---
+
 ### 2026-04-26 — ✨ 精華 Prompt 索引（可直接複用）
 
 **Prompt 要點**

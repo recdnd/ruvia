@@ -8,7 +8,7 @@
 ## 預設顯示名規則（程式：`script.js`）
 
 - **根層新 knot**（工具列、stash、第一顆）：依序使用 `knot-a`、`knot-b`、…、`knot-z`；若仍不足，再用 `knot-aa`…`knot-zz`（兩個小寫字母），極少數情況 fallback 為 `knot-x` + 短字串。
-- **由某顆 knot 側邊延伸**（`+` 左右）：在**父 knot 的 `title`** 後加 `--` 與子序：`knot-a--a`、`knot-a--b`…；父為 `knot-x--y` 時，子為 `knot-x--y--a` 等。
+- **由某顆 knot 側邊延伸**（`+` 左右）：在**父 knot 的 `title`** 後加 `-` 與子序：`knot-a-a`、`knot-a-b`…；父為 `knot-x-y` 時，子為 `knot-x-y-a` 等。
 
 父標題若自訂成任意字串，子名仍為「父字串 + `--` + 單一小寫字母」。
 

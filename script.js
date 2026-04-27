@@ -24,30 +24,30 @@
   };
   const RUVIA_COLORS = [
     { name: "primrose", hex: "#efe5a8" },
-    { name: "veridian", hex: "#008747" },
-    { name: "sage", hex: "#90966f" },
+    { name: "hellebore", hex: "#3f6b4f" },
+    { name: "artemisia", hex: "#90966f" },
     { name: "mallow", hex: "#d5648c" },
-    { name: "rustrose", hex: "#b43c20" },
-    { name: "tealbell", hex: "#009a9a" },
-    { name: "coral", hex: "#ff8375" },
+    { name: "zinnia", hex: "#b43c20" },
+    { name: "plumbago", hex: "#4ea3d9" },
+    { name: "azalea", hex: "#ff8375" },
     { name: "violet", hex: "#5130ba" },
-    { name: "aconite", hex: "#3f13a8" },
-    { name: "clove", hex: "#4b383d" },
-    { name: "thyme", hex: "#b6c9aa" },
-    { name: "cotton", hex: "#fff8f4" },
-    { name: "crimson", hex: "#d00045" },
+    { name: "aconite", hex: "#4a2fb3" },
+    { name: "chocolatecosmos", hex: "#4b383d" },
+    { name: "lambsear", hex: "#b6c9aa" },
+    { name: "gardenia", hex: "#fff8f4" },
+    { name: "peony", hex: "#d00045" },
     { name: "orchid", hex: "#d20a8c" },
-    { name: "blush", hex: "#e8bdc8" },
-    { name: "sulfur", hex: "#eedb00" },
-    { name: "cinnabar", hex: "#e52b17" },
-    { name: "cyanflower", hex: "#1aa8c0" },
-    { name: "amethyst", hex: "#9462ba" },
-    { name: "mintglass", hex: "#5ed0c8" },
-    { name: "peach", hex: "#ffad8f" },
-    { name: "magenta", hex: "#ef5ee8" },
-    { name: "amber", hex: "#ed9900" },
+    { name: "camellia", hex: "#e8bdc8" },
+    { name: "daffodil", hex: "#eedb00" },
+    { name: "poppy", hex: "#e52b17" },
+    { name: "forgetmenot", hex: "#1aa8c0" },
+    { name: "lilac", hex: "#9462ba" },
+    { name: "bellsofireland", hex: "#7fbf5b" },
+    { name: "begonia", hex: "#ffad8f" },
+    { name: "fuchsia", hex: "#ef5ee8" },
+    { name: "calendula", hex: "#ed9900" },
     { name: "ruvia", hex: "#f4f4f4" },
-    { name: "irisgray", hex: "#6c5a93" }
+    { name: "iris", hex: "#5a4fcf" }
   ];
 
   const app = {
@@ -123,7 +123,8 @@
     if (!app.state.knots.length) {
       createKnot({
         contentExpanded: true,
-        layout: { x: 120, y: 80, zone: "canvas" }
+        layout: { x: 120, y: 80 },
+        location: "canvas"
       });
     }
 
@@ -190,12 +191,20 @@
     });
 
     app.dom.importInput.addEventListener("change", async (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
+      const files = Array.from(event.target.files || []);
+      if (!files.length) return;
 
       try {
-        const raw = JSON.parse(await file.text());
-        app.state = loadFromImport(raw);
+        const importedSources = [];
+        for (const file of files) {
+          const raw = JSON.parse(await file.text());
+          const doc = loadFromImport(raw);
+          importedSources.push({
+            fileName: file.name,
+            doc
+          });
+        }
+        app.state = mergeImportedDocuments(app.state, importedSources);
         app.selectedKnotId = null;
         saveState();
         render();
@@ -266,13 +275,29 @@
 
   function updateColorDot(knot) {
     if (!app.dom.colorDotBtn) return;
-    if (isMobileView() && app.activeDefaultColorName) {
-      const active = getColorByName(app.activeDefaultColorName);
-      app.dom.colorDotBtn.style.color = active ? active.hex : "var(--text-dim)";
-      return;
+    if (isMobileView()) {
+      const selected = findKnot(app.selectedKnotId);
+      const selectedColor = getColorByName(selected?.meta?.color);
+      if (selectedColor) {
+        app.dom.colorDotBtn.style.color = selectedColor.hex;
+        return;
+      }
+      if (app.activeDefaultColorName) {
+        const active = getColorByName(app.activeDefaultColorName);
+        app.dom.colorDotBtn.style.color = active ? active.hex : "var(--text-dim)";
+        return;
+      }
     }
     const color = getColorByName(knot?.meta?.color);
     app.dom.colorDotBtn.style.color = color ? color.hex : "var(--text-dim)";
+  }
+
+  function syncMenuVisibilityUi() {
+    const hasMenus = app.state.menus.length > 0;
+    document.body.classList.toggle("has-menus", hasMenus);
+    if (!hasMenus) {
+      document.body.classList.remove("menu-drawer-open");
+    }
   }
 
   function renderColorPalette() {
@@ -318,8 +343,13 @@
       if (isMobileView()) {
         event.preventDefault();
         event.stopPropagation();
-        app.activeDefaultColorName = colorName;
-        updateColorDot(null);
+        const selected = findKnot(app.selectedKnotId);
+        if (selected) {
+          applyColorToKnot(selected, colorName);
+        } else {
+          app.activeDefaultColorName = colorName;
+          updateColorDot(null);
+        }
         document.body.classList.remove("color-palette-open");
         return;
       }
@@ -328,6 +358,14 @@
       showColorCursor(colorName);
       document.body.classList.add("is-color-painting");
     });
+
+    const getDraggedColorName = (event) => {
+      return (
+        event.dataTransfer?.getData("text/ruvia-color") ||
+        event.dataTransfer?.getData("text/plain") ||
+        ""
+      );
+    };
 
     app.dom.colorPalette.addEventListener("dragstart", (event) => {
       const dot = event.target.closest(".palette-dot");
@@ -345,30 +383,39 @@
     });
 
     const handleColorDrop = (event) => {
-      const colorName =
-        event.dataTransfer?.getData("text/ruvia-color") ||
-        event.dataTransfer?.getData("text/plain");
+      const colorName = getDraggedColorName(event);
       if (!colorName) return;
       event.preventDefault();
       event.stopPropagation();
       const color = getColorByName(colorName);
       if (!color) return;
 
-      const knotEl = event.target.closest(".knot");
+      let knotEl = event.target.closest(".knot");
+      if (!knotEl && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+        const hitEl = document.elementFromPoint(event.clientX, event.clientY);
+        knotEl = hitEl?.closest?.(".knot") || null;
+      }
       if (!knotEl) return;
 
       const knot = findKnot(knotEl.dataset.knotId);
       if (!knot) return;
 
       applyColorToKnot(knot, colorName);
+      app.isColorDragging = false;
+      document.body.classList.remove("is-color-dragging");
     };
 
     const knotLayers = [app.dom.knotLayer, app.dom.trayKnotLayer].filter(Boolean);
     for (const layer of knotLayers) {
       layer.addEventListener("dragover", (event) => {
         const types = Array.from(event.dataTransfer?.types || []);
-        if (types.includes("text/ruvia-color") || types.includes("text/plain")) {
+        if (
+          types.includes("text/ruvia-color") ||
+          types.includes("text/plain") ||
+          app.isColorDragging
+        ) {
           event.preventDefault();
+          if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
         }
       });
 
@@ -377,8 +424,13 @@
 
     app.dom.canvasPane.addEventListener("dragover", (event) => {
       const types = Array.from(event.dataTransfer?.types || []);
-      if (types.includes("text/ruvia-color") || types.includes("text/plain")) {
+      if (
+        types.includes("text/ruvia-color") ||
+        types.includes("text/plain") ||
+        app.isColorDragging
+      ) {
         event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
       }
     });
     app.dom.canvasPane.addEventListener("drop", handleColorDrop);
@@ -430,6 +482,7 @@
     if (!color || !knot) return;
     knot.meta = knot.meta || {};
     knot.meta.color = colorName;
+    console.log("[color]", knot.id, colorName, knot.meta.color);
     updateColorDot(knot);
     touchDocumentUpdated();
     saveState();
@@ -494,42 +547,60 @@
   }
 
   function bindCanvasPan() {
-    app.dom.canvasPane.addEventListener("mousedown", (event) => {
+    const pane = app.dom.canvasPane;
+
+    const finishPan = (pointerId) => {
+      app.isPanning = false;
+      document.body.classList.remove("is-panning");
+      if (pointerId != null && pane.hasPointerCapture?.(pointerId)) {
+        pane.releasePointerCapture(pointerId);
+      }
+    };
+
+    pane.addEventListener("pointerdown", (event) => {
       if (app.isColorDragging) return;
-      if (event.button !== 0) return;
-      if (event.target.closest(".color-controls")) return;
+      if (!event.isPrimary) return;
+      if (event.button !== undefined && event.button !== 0) return;
       if (event.target.closest(".knot")) return;
       if (event.target.closest(".port")) return;
       if (event.target.closest(".side-add")) return;
       if (event.target.closest(".zoom-controls")) return;
+      if (event.target.closest(".color-controls")) return;
       if (event.target.closest(".edge-cut")) return;
+      if (
+        event.target.closest("textarea") ||
+        event.target.closest("input") ||
+        event.target.closest('[contenteditable="true"]')
+      ) {
+        return;
+      }
 
       event.preventDefault();
-
       app.isPanning = true;
       app.panStartX = event.clientX;
       app.panStartY = event.clientY;
       app.panOriginX = app.panX;
       app.panOriginY = app.panY;
-
       document.body.classList.add("is-panning");
+      pane.setPointerCapture?.(event.pointerId);
+    });
 
-      const onMove = (moveEvent) => {
-        if (!app.isPanning) return;
-        app.panX = app.panOriginX + (moveEvent.clientX - app.panStartX);
-        app.panY = app.panOriginY + (moveEvent.clientY - app.panStartY);
-        applyZoom();
-      };
+    pane.addEventListener("pointermove", (event) => {
+      if (!app.isPanning) return;
+      app.panX = app.panOriginX + (event.clientX - app.panStartX);
+      app.panY = app.panOriginY + (event.clientY - app.panStartY);
+      applyZoom();
+      event.preventDefault();
+    });
 
-      const onUp = () => {
-        app.isPanning = false;
-        document.body.classList.remove("is-panning");
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
-      };
+    pane.addEventListener("pointerup", (event) => {
+      if (!app.isPanning) return;
+      finishPan(event.pointerId);
+    });
 
-      window.addEventListener("mousemove", onMove);
-      window.addEventListener("mouseup", onUp);
+    pane.addEventListener("pointercancel", (event) => {
+      if (!app.isPanning) return;
+      finishPan(event.pointerId);
     });
   }
 
@@ -545,6 +616,76 @@
 
   function getEffectiveZoom() {
     return app.zoom * GLOBAL_SCALE;
+  }
+
+  function getCanvasRect() {
+    return app.dom.canvasPane.getBoundingClientRect();
+  }
+
+  function getCanvasScale() {
+    return getEffectiveZoom();
+  }
+
+  function screenToWorld(clientX, clientY) {
+    const rect = getCanvasRect();
+    const scale = getCanvasScale();
+    return {
+      x: (clientX - rect.left - (app.panX || 0)) / scale,
+      y: (clientY - rect.top - (app.panY || 0)) / scale
+    };
+  }
+
+  function worldToScreen(x, y) {
+    const rect = getCanvasRect();
+    const scale = getCanvasScale();
+    return {
+      x: rect.left + (app.panX || 0) + x * scale,
+      y: rect.top + (app.panY || 0) + y * scale
+    };
+  }
+
+  function screenToCanvasLocal(clientX, clientY) {
+    const rect = getCanvasRect();
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+
+  function worldToCanvasLocal(x, y) {
+    const scale = getCanvasScale();
+    return {
+      x: (app.panX || 0) + x * scale,
+      y: (app.panY || 0) + y * scale
+    };
+  }
+
+  function getCanvasLocalPointFromClient(clientX, clientY) {
+    const rect = getCanvasRect();
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") {
+      return window.CSS.escape(value);
+    }
+    return String(value).replace(/"/g, '\\"');
+  }
+
+  function getPortCenterVisual(knotId, side) {
+    const selector = `.knot[data-knot-id="${cssEscape(knotId)}"] .port.${side}`;
+    const port = app.dom.knotLayer.querySelector(selector);
+    if (!port) return null;
+
+    const portRect = port.getBoundingClientRect();
+    const canvasRect = getCanvasRect();
+    return {
+      x: portRect.left + portRect.width / 2 - canvasRect.left,
+      y: portRect.top + portRect.height / 2 - canvasRect.top
+    };
   }
 
   function clampZoom(value) {
@@ -566,7 +707,7 @@
           x: 8,
           y: countTrayKnots() * 36,
           width: STASH_KNOT_SIZE.width,
-          zone: "tray"
+          location: "tray"
         });
         touchDocumentUpdated();
         saveState();
@@ -622,6 +763,17 @@
       layer.addEventListener("mousedown", (event) => {
         if (event.button !== 0) return;
         if (event.target.closest(".port")) return;
+        if (event.target.closest(".knot-edit-btn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const knotEl = event.target.closest(".knot");
+          const titleEl = knotEl?.querySelector(".knot-title");
+          if (titleEl) {
+            titleEl.contentEditable = "true";
+            titleEl.focus();
+          }
+          return;
+        }
 
         if (event.target.closest(".delete-btn")) {
           event.preventDefault();
@@ -660,28 +812,40 @@
         app.dragKnotLayer = layer;
         bringKnotToFront(knot.id);
 
-        const kr = knotEl.getBoundingClientRect();
-        const sourceZone = getKnotLayout(app.state, knot.id).zone || "canvas";
-        const sourceScale = sourceZone === "tray" ? 1 : getEffectiveZoom();
-        app.offsetX = (event.clientX - kr.left) / sourceScale;
-        app.offsetY = (event.clientY - kr.top) / sourceScale;
+        const sourceZone = getKnotLocation(knot);
+        if (sourceZone === "tray") {
+          const kr = knotEl.getBoundingClientRect();
+          app.offsetX = event.clientX - kr.left;
+          app.offsetY = event.clientY - kr.top;
+        } else {
+          const world = screenToWorld(event.clientX, event.clientY);
+          const layout = getKnotLayout(app.state, knot.id);
+          app.offsetX = world.x - layout.x;
+          app.offsetY = world.y - layout.y;
+        }
 
         const onMove = (moveEvent) => {
           const layout = getKnotLayout(app.state, knot.id);
           const inTray = isPointerInTray(moveEvent.clientX, moveEvent.clientY);
           const nextZone = inTray ? "tray" : "canvas";
 
-          const zoneRect = nextZone === "tray"
-            ? app.dom.trayKnotLayer.getBoundingClientRect()
-            : app.dom.canvasPane.getBoundingClientRect();
-          const scale = nextZone === "tray" ? 1 : getEffectiveZoom();
-          const maxX = Math.max(0, zoneRect.width / scale - (layout.width || KNOT_SIZE.width));
-          const maxY = Math.max(0, zoneRect.height / scale - (layout.height || KNOT_SIZE.height));
-          const panX = nextZone === "tray" ? 0 : (app.panX || 0);
-          const panY = nextZone === "tray" ? 0 : (app.panY || 0);
-          layout.x = clamp((moveEvent.clientX - zoneRect.left - panX) / scale - app.offsetX, 0, maxX);
-          layout.y = clamp((moveEvent.clientY - zoneRect.top - panY) / scale - app.offsetY, 0, maxY);
-          layout.zone = nextZone;
+          if (nextZone === "tray") {
+            const zoneRect = app.dom.trayKnotLayer.getBoundingClientRect();
+            const maxX = Math.max(0, zoneRect.width - (layout.width || KNOT_SIZE.width));
+            const maxY = Math.max(0, zoneRect.height - (layout.height || KNOT_SIZE.height));
+            layout.x = clamp(moveEvent.clientX - zoneRect.left - app.offsetX, 0, maxX);
+            layout.y = clamp(moveEvent.clientY - zoneRect.top - app.offsetY, 0, maxY);
+          } else {
+            const world = screenToWorld(moveEvent.clientX, moveEvent.clientY);
+            const canvas = getCanvasRect();
+            const scale = getCanvasScale();
+            const maxX = Math.max(0, canvas.width / scale - (layout.width || KNOT_SIZE.width));
+            const maxY = Math.max(0, canvas.height / scale - (layout.height || KNOT_SIZE.height));
+            layout.x = clamp(world.x - app.offsetX, 0, maxX);
+            layout.y = clamp(world.y - app.offsetY, 0, maxY);
+          }
+          knot.meta = knot.meta || {};
+          knot.meta.location = nextZone;
 
           setKnotLayout(app.state, knot.id, layout);
           render();
@@ -743,6 +907,17 @@
           return;
         }
 
+        if (event.target.closest(".knot-edit-btn")) {
+          event.preventDefault();
+          event.stopPropagation();
+          const titleEl = knotEl.querySelector(".knot-title");
+          if (titleEl) {
+            titleEl.contentEditable = "true";
+            titleEl.focus();
+          }
+          return;
+        }
+
         if (
           event.target.classList.contains("knot-title") ||
           event.target.classList.contains("knot-content-input")
@@ -773,26 +948,49 @@
         "focusin",
         (event) => {
           if (!event.target.classList.contains("knot-title")) return;
+          if (event.target.contentEditable !== "true") return;
           const knotEl = event.target.closest(".knot");
           if (!knotEl) return;
           const knot = findKnot(knotEl.dataset.knotId);
           if (!knot) return;
 
+          knotEl.classList.add("is-renaming");
+          event.target.dataset.editingStartTitle = getKnotEditingTitle(knot);
           event.target.textContent = getKnotEditingTitle(knot);
         },
         true
       );
 
+      layer.addEventListener("keydown", (event) => {
+        if (!event.target.classList.contains("knot-title")) return;
+        if (event.target.contentEditable !== "true") return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.target.blur();
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          const original = event.target.dataset.editingStartTitle || "";
+          event.target.textContent = original;
+          event.target.blur();
+        }
+      });
+
       layer.addEventListener(
         "focusout",
         (event) => {
           if (!event.target.classList.contains("knot-title")) return;
+          if (event.target.contentEditable !== "true") return;
           const knotEl = event.target.closest(".knot");
           if (!knotEl) return;
           const knot = findKnot(knotEl.dataset.knotId);
           if (!knot) return;
 
+          knotEl.classList.remove("is-renaming");
           knot.title = (event.target.textContent || "").trim();
+          delete event.target.dataset.editingStartTitle;
+          event.target.contentEditable = "false";
           touchDocumentUpdated();
           saveState();
           render();
@@ -833,7 +1031,7 @@
 
       const knotId = knotEl.dataset.knotId;
       const side = port.dataset.side;
-      const point = getPortCenter(knotId, side);
+      const point = getPortCenterVisual(knotId, side);
       if (!point) return;
 
       app.connectFrom = { knotId, side };
@@ -841,11 +1039,7 @@
       renderEdges();
 
       const onMove = (moveEvent) => {
-        const rect = app.dom.canvasPane.getBoundingClientRect();
-        app.tempPoint = {
-          x: moveEvent.clientX - rect.left,
-          y: moveEvent.clientY - rect.top
-        };
+        app.tempPoint = getCanvasLocalPointFromClient(moveEvent.clientX, moveEvent.clientY);
         renderEdges();
       };
 
@@ -883,28 +1077,45 @@
   }
 
   function bindEdgeEvents() {
+    function syncHoveredEdgeClass() {
+      const paths = app.dom.edgeLayer.querySelectorAll(".edge");
+      for (const path of paths) {
+        path.classList.toggle("is-hovered", path.dataset.edgeId === app.hoverEdgeId);
+      }
+    }
+
     function setHoveredEdge(edgeId) {
       if (app.hoverEdgeId === edgeId) return;
       app.hoverEdgeId = edgeId;
+      syncHoveredEdgeClass();
       renderEdgeTools();
     }
 
     app.dom.edgeLayer.addEventListener("mouseover", (event) => {
-      const path = event.target.closest(".edge");
-      if (!path || !path.dataset.edgeId || path.classList.contains("temp")) return;
-      setHoveredEdge(path.dataset.edgeId);
+      const target = event.target.closest(".edge-hit, .edge");
+      if (!target || !target.dataset.edgeId || target.classList.contains("temp")) return;
+      setHoveredEdge(target.dataset.edgeId);
     });
 
     app.dom.edgeLayer.addEventListener("mouseout", (event) => {
-      const path = event.target.closest(".edge");
-      if (!path || !path.dataset.edgeId || path.classList.contains("temp")) return;
+      const target = event.target.closest(".edge-hit, .edge");
+      if (!target || !target.dataset.edgeId || target.classList.contains("temp")) return;
 
       const related = event.relatedTarget;
       if (
         related &&
         related.closest &&
         related.closest(".edge-cut") &&
-        related.closest(".edge-cut").dataset.edgeId === path.dataset.edgeId
+        related.closest(".edge-cut").dataset.edgeId === target.dataset.edgeId
+      ) {
+        return;
+      }
+
+      if (
+        related &&
+        related.closest &&
+        related.closest(".edge-hit, .edge") &&
+        related.closest(".edge-hit, .edge").dataset.edgeId === target.dataset.edgeId
       ) {
         return;
       }
@@ -933,22 +1144,24 @@
       setHoveredEdge(null);
     });
 
-    app.dom.edgeToolLayer.addEventListener("mousedown", (event) => {
+    const handleEdgeCut = (event) => {
       const btn = event.target.closest(".edge-cut");
       if (!btn || !btn.dataset.edgeId) return;
-      if (event.button !== 0) return;
+      if (event.type !== "click" && event.button !== 0) return;
       event.preventDefault();
       event.stopPropagation();
       const edgeId = btn.dataset.edgeId;
       app.state.edges = app.state.edges.filter((edge) => edge.id !== edgeId);
-      for (const menu of app.state.menus) {
-        menu.edgeIds = menu.edgeIds.filter((id) => id !== edgeId);
-      }
+      removeEdgeFromAllMenuProjections(app.state, edgeId);
       setHoveredEdge(null);
       touchDocumentUpdated();
       saveState();
       render();
-    });
+    };
+
+    app.dom.edgeToolLayer.addEventListener("mousedown", handleEdgeCut);
+    app.dom.edgeToolLayer.addEventListener("pointerdown", handleEdgeCut);
+    app.dom.edgeToolLayer.addEventListener("click", handleEdgeCut);
   }
 
   function createKnot(options = {}) {
@@ -965,13 +1178,13 @@
       y: options.y ?? 90 + app.state.knots.length * 10,
       width: Number.isFinite(options.width) ? options.width : KNOT_SIZE.width,
       height: Number.isFinite(options.height) ? options.height : null,
-      zone: options.zone ?? "canvas",
       zIndex: nextZIndex()
     };
 
     if (options.parentId != null) {
       knot.meta.parentId = String(options.parentId);
     }
+    knot.meta.location = options.location ?? options.zone ?? "canvas";
     if (options.colorName) {
       knot.meta.color = options.colorName;
     } else if (app.activeDefaultColorName) {
@@ -988,8 +1201,11 @@
     app.state.knots.push(knot);
     setKnotLayout(app.state, id, layout);
 
+    const includeInActiveMenu = options.includeInActiveMenu !== false;
     const menu = getActiveMenu(app.state);
-    if (menu) attachKnotToMenu(app.state, menu.id, id);
+    if (includeInActiveMenu && menu) {
+      addKnotToMenuProjection(app.state, menu.id, id);
+    }
 
     syncHierarchyFiles(app.state);
     return knot;
@@ -1003,19 +1219,28 @@
     ).length;
     const staggerY = branchIndex * 32;
 
+    const activeMenu = getActiveMenu(app.state);
+    const sourceInActiveMenu = activeMenu ? activeMenu.knotIds.includes(sourceKnot.id) : false;
     const newKnot = createKnot({
       parentKnot: sourceKnot,
       contentExpanded: true,
       x: side === "right" ? srcLayout.x + gapX : Math.max(0, srcLayout.x - gapX),
       y: srcLayout.y + staggerY,
       width: KNOT_SIZE.width,
-      zone: srcLayout.zone
+      location: getKnotLocation(sourceKnot),
+      includeInActiveMenu: sourceInActiveMenu
     });
 
     if (side === "right") {
-      ensureEdge(app.state, sourceKnot.id, newKnot.id, "link");
+      const edge = ensureEdge(app.state, sourceKnot.id, newKnot.id, "link");
+      if (sourceInActiveMenu && activeMenu && edge) {
+        addEdgeToMenuProjection(app.state, activeMenu.id, edge.id);
+      }
     } else {
-      ensureEdge(app.state, newKnot.id, sourceKnot.id, "link");
+      const edge = ensureEdge(app.state, newKnot.id, sourceKnot.id, "link");
+      if (sourceInActiveMenu && activeMenu && edge) {
+        addEdgeToMenuProjection(app.state, activeMenu.id, edge.id);
+      }
     }
 
     bringKnotToFront(newKnot.id);
@@ -1032,21 +1257,19 @@
       if (pid === knotId) delete knot.meta.parentId;
     }
 
-    for (const menu of app.state.menus) {
-      menu.knotIds = menu.knotIds.filter((id) => id !== knotId);
-      menu.edgeIds = menu.edgeIds.filter((id) => {
-        const e = getEdgeById(app.state, id);
-        return e && e.from !== knotId && e.to !== knotId;
-      });
+    const removedEdgeIds = app.state.edges
+      .filter((edge) => edge.from === knotId || edge.to === knotId)
+      .map((edge) => edge.id);
+    app.state.edges = app.state.edges.filter((edge) => edge.from !== knotId && edge.to !== knotId);
+    removeKnotFromAllMenuProjections(app.state, knotId);
+    for (const edgeId of removedEdgeIds) {
+      removeEdgeFromAllMenuProjections(app.state, edgeId);
     }
-
-    app.state.edges = app.state.edges.filter((e) => e.from !== knotId && e.to !== knotId);
 
     if (app.selectedKnotId === knotId) {
       app.selectedKnotId = null;
     }
 
-    syncHierarchyFromMenus(app.state);
     syncHierarchyFiles(app.state);
   }
 
@@ -1055,8 +1278,7 @@
     const from = findKnot(fromKnotId);
     const to = findKnot(toKnotId);
     if (!from || !to) return;
-    if (getKnotLayout(app.state, from.id).zone !== "canvas") return;
-    if (getKnotLayout(app.state, to.id).zone !== "canvas") return;
+    if (isTrayKnot(from) || isTrayKnot(to)) return;
 
     // 從 right 拉出：source -> target
     if (fromSide === "right") {
@@ -1077,26 +1299,31 @@
     const sourceKnot = findKnot(app.connectFrom.knotId);
     if (!sourceKnot) return;
 
-    const rect = app.dom.canvasPane.getBoundingClientRect();
-    const z = getEffectiveZoom();
+    const world = screenToWorld(event.clientX, event.clientY);
 
-    const x = (event.clientX - rect.left - (app.panX || 0)) / z;
-    const y = (event.clientY - rect.top - (app.panY || 0)) / z;
-
+    const activeMenu = getActiveMenu(app.state);
+    const sourceInActiveMenu = activeMenu ? activeMenu.knotIds.includes(sourceKnot.id) : false;
     const newKnot = createKnot({
       parentKnot: app.connectFrom.side === "right" ? sourceKnot : null,
       contentExpanded: true,
-      x: Math.max(0, x),
-      y: Math.max(0, y),
+      y: Math.max(0, world.y),
+      x: Math.max(0, world.x),
       width: KNOT_SIZE.width,
       height: KNOT_SIZE.height,
-      zone: "canvas"
+      location: "canvas",
+      includeInActiveMenu: sourceInActiveMenu
     });
 
     if (app.connectFrom.side === "right") {
-      ensureEdge(app.state, sourceKnot.id, newKnot.id, "link");
+      const edge = ensureEdge(app.state, sourceKnot.id, newKnot.id, "link");
+      if (sourceInActiveMenu && activeMenu && edge) {
+        addEdgeToMenuProjection(app.state, activeMenu.id, edge.id);
+      }
     } else {
-      ensureEdge(app.state, newKnot.id, sourceKnot.id, "link");
+      const edge = ensureEdge(app.state, newKnot.id, sourceKnot.id, "link");
+      if (sourceInActiveMenu && activeMenu && edge) {
+        addEdgeToMenuProjection(app.state, activeMenu.id, edge.id);
+      }
     }
 
     bringKnotToFront(newKnot.id);
@@ -1104,6 +1331,7 @@
   }
 
   function render() {
+    syncMenuVisibilityUi();
     renderKnots();
     renderEdges();
     renderMenuPanel();
@@ -1118,7 +1346,7 @@
     if (!trayRect.width || !trayRect.height) return;
 
     const trayKnotIds = app.state.knots
-      .filter((knot) => getKnotLayout(app.state, knot.id).zone === "tray")
+      .filter((knot) => isTrayKnot(knot))
       .map((knot) => knot.id);
 
     if (!trayKnotIds.length) return;
@@ -1141,8 +1369,7 @@
       setKnotLayout(app.state, knotId, {
         ...layout,
         x: maxX > 0 ? Math.random() * maxX : 0,
-        y: maxY > minY ? minY + Math.random() * (maxY - minY) : 0,
-        zone: "tray"
+        y: maxY > minY ? minY + Math.random() * (maxY - minY) : 0
       });
     }
   }
@@ -1168,13 +1395,19 @@
         knotEl.style.setProperty("--knot-accent", color.hex);
         if (color.name === "ruvia") {
           knotEl.style.setProperty("--knot-bg-accent", "var(--knot-bg)");
+          knotEl.style.backgroundColor = "var(--knot-bg)";
+          knotEl.style.borderColor = "var(--line-soft)";
         } else {
-          knotEl.style.setProperty("--knot-bg-accent", `${color.hex}26`);
+          knotEl.style.setProperty("--knot-bg-accent", `${color.hex}55`);
+          knotEl.style.backgroundColor = `${color.hex}55`;
+          knotEl.style.borderColor = color.hex;
         }
       } else {
         delete knotEl.dataset.color;
         knotEl.style.removeProperty("--knot-accent");
         knotEl.style.removeProperty("--knot-bg-accent");
+        knotEl.style.removeProperty("background-color");
+        knotEl.style.removeProperty("border-color");
       }
       knotEl.style.left = `${layout.x}px`;
       knotEl.style.top = `${layout.y}px`;
@@ -1190,7 +1423,7 @@
 
       const title = document.createElement("div");
       title.className = "knot-title";
-      title.contentEditable = "true";
+      title.contentEditable = "false";
       title.spellcheck = false;
       title.textContent = getKnotDisplayTitle(knot);
       title.dataset.rawTitle = getKnotEditingTitle(knot);
@@ -1198,8 +1431,9 @@
       const actions = document.createElement("div");
       actions.className = "knot-actions";
 
+      const editBtn = makeBtn("knot-edit-btn", "✐", "Rename knot");
       const deleteBtn = makeBtn("delete-btn", "x", "Delete knot");
-      actions.append(deleteBtn);
+      actions.append(editBtn, deleteBtn);
 
       header.append(title, actions);
 
@@ -1235,7 +1469,7 @@
       addRight.title = "extend right";
       addRight.textContent = "+";
 
-      if (layout.zone === "tray") {
+      if (isTrayKnot(knot)) {
         if (contentText.trim() !== "") {
           contentWrap.append(textInput);
           knotEl.append(header, contentWrap);
@@ -1300,7 +1534,7 @@
 
   function renderEdges() {
     const svg = app.dom.edgeLayer;
-    const wr = app.dom.canvasPane.getBoundingClientRect();
+    const wr = getCanvasRect();
 
     svg.setAttribute("width", String(wr.width));
     svg.setAttribute("height", String(wr.height));
@@ -1314,28 +1548,39 @@
     for (const edge of app.state.edges) {
       if (!activeEdgeIds.has(edge.id)) continue;
       if (!visibleIds.has(edge.from) || !visibleIds.has(edge.to)) continue;
-      if (getKnotLayout(app.state, edge.from).zone !== "canvas") continue;
-      if (getKnotLayout(app.state, edge.to).zone !== "canvas") continue;
+      if (isTrayKnot(getKnotById(app.state, edge.from))) continue;
+      if (isTrayKnot(getKnotById(app.state, edge.to))) continue;
 
-      const from = getPortCenter(edge.from, "right");
-      const to = getPortCenter(edge.to, "left");
+      const from = getPortCenterVisual(edge.from, "right");
+      const to = getPortCenterVisual(edge.to, "left");
       if (!from || !to) continue;
+
+      const d = edgePath(from, to);
+
+      const hitPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      hitPath.classList.add("edge-hit");
+      hitPath.dataset.edgeId = edge.id;
+      hitPath.setAttribute("d", d);
+      paths.push(hitPath);
 
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.classList.add("edge");
+      if (edge.id === app.hoverEdgeId) path.classList.add("is-hovered");
       path.dataset.edgeId = edge.id;
-      path.setAttribute("d", edgePath(from, to));
+      path.setAttribute("d", d);
       path.setAttribute("stroke", edgeStroke(edge.relation));
       path.setAttribute("title", edge.relation || "link");
       paths.push(path);
     }
 
     if (app.connectFrom && app.tempPoint) {
-      const origin = getPortCenter(app.connectFrom.knotId, app.connectFrom.side);
+      const origin = getPortCenterVisual(app.connectFrom.knotId, app.connectFrom.side);
       if (origin) {
+        const tempPoint = app.tempPoint;
         const temp = document.createElementNS("http://www.w3.org/2000/svg", "path");
         temp.classList.add("edge", "temp");
-        temp.setAttribute("d", edgePath(origin, app.tempPoint));
+        temp.style.stroke = "#ff0000";
+        temp.setAttribute("d", edgePath(origin, tempPoint));
         paths.push(temp);
       }
     }
@@ -1359,14 +1604,16 @@
       return;
     }
 
-    const from = getPortCenter(edge.from, "right");
-    const to = getPortCenter(edge.to, "left");
+    const from = getPortCenterVisual(edge.from, "right");
+    const to = getPortCenterVisual(edge.to, "left");
     if (!from || !to) {
       layer.replaceChildren();
       return;
     }
-
-    const mid = edgeMidpoint(from, to);
+    const mid = {
+      x: (from.x + to.x) / 2,
+      y: (from.y + to.y) / 2
+    };
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "edge-cut is-visible";
@@ -1378,23 +1625,20 @@
     layer.replaceChildren(btn);
   }
 
-  function getPortCenter(knotId, side) {
-    const knotEl =
-      app.dom.knotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`) ||
-      (app.dom.trayKnotLayer
-        ? app.dom.trayKnotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`)
-        : null);
-    if (!knotEl) return null;
-
-    const port = knotEl.querySelector(`.port.${side}`);
-    if (!port) return null;
-
-    const wr = app.dom.canvasPane.getBoundingClientRect();
-    const rect = port.getBoundingClientRect();
-
+  function getPortCenterWorld(knotId, side) {
+    const layout = getKnotLayout(app.state, knotId);
+    const knot = getKnotById(app.state, knotId);
+    if (!layout || !knot || isTrayKnot(knot)) return null;
+    const width = layout.width || KNOT_SIZE.width;
+    const knotEl = app.dom.knotLayer.querySelector(`.knot[data-knot-id="${knotId}"]`);
+    const contentEl = knotEl?.querySelector(".knot-content");
+    const dynamicHeight = contentEl
+      ? knotEl.offsetHeight / getCanvasScale()
+      : (layout.height || KNOT_SIZE.height);
+    const h = dynamicHeight || layout.height || KNOT_SIZE.height;
     return {
-      x: rect.left - wr.left + rect.width / 2,
-      y: rect.top - wr.top + rect.height / 2
+      x: side === "right" ? layout.x + width : layout.x,
+      y: layout.y + h / 2
     };
   }
 
@@ -1431,7 +1675,7 @@
   }
 
   function getVisibleKnotIds() {
-    const memberIds = new Set(getKnotIdsForMenu(app.state, app.state.ui.activeMenuId));
+    const memberIds = new Set(getVisibleKnotIdsForMenu(app.state, app.state.ui.activeMenuId));
     const hidden = new Set();
     const childrenMap = new Map();
 
@@ -1504,6 +1748,169 @@
     return migrateLegacyState(raw);
   }
 
+  function slugifyImportFileName(fileName) {
+    const base = String(fileName || "root").replace(/\.[^.]+$/, "");
+    const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return slug || "root";
+  }
+
+  function displayNameFromImportFileName(fileName) {
+    return String(fileName || "root").replace(/\.[^.]+$/, "").trim() || "root";
+  }
+
+  function prefixImportedDocumentIds(doc, fileName, index) {
+    const out = structuredClone(doc);
+    const prefix = `imported_${slugifyImportFileName(fileName)}_${index}`;
+    const displayName = displayNameFromImportFileName(fileName);
+    const knotIdMap = new Map();
+    const edgeIdMap = new Map();
+    const menuIdMap = new Map();
+    const rootIdMap = new Map();
+
+    for (const knot of out.knots) {
+      knotIdMap.set(knot.id, `${prefix}_${knot.id}`);
+    }
+    for (const edge of out.edges) {
+      edgeIdMap.set(edge.id, `${prefix}_${edge.id}`);
+    }
+    for (const menu of out.menus) {
+      menuIdMap.set(menu.id, `${prefix}_${menu.id}`);
+    }
+    for (const root of out.roots) {
+      rootIdMap.set(root.id, `${prefix}_${root.id}`);
+    }
+
+    out.knots = out.knots.map((knot) => {
+      const next = { ...knot, id: knotIdMap.get(knot.id) || knot.id };
+      if (next.meta?.parentId) {
+        next.meta = { ...next.meta, parentId: knotIdMap.get(next.meta.parentId) || next.meta.parentId };
+      }
+      return next;
+    });
+
+    out.edges = out.edges.map((edge) => ({
+      ...edge,
+      id: edgeIdMap.get(edge.id) || edge.id,
+      from: knotIdMap.get(edge.from) || edge.from,
+      to: knotIdMap.get(edge.to) || edge.to
+    }));
+
+    out.menus = out.menus.map((menu, menuIndex) => ({
+      ...menu,
+      id: menuIdMap.get(menu.id) || menu.id,
+      name: out.menus.length === 1 ? displayName : `${displayName}/${menu.name || `tree-${menuIndex + 1}`}`,
+      knotIds: menu.knotIds.map((id) => knotIdMap.get(id) || id),
+      edgeIds: menu.edgeIds.map((id) => edgeIdMap.get(id) || id),
+      entryKnotId: menu.entryKnotId ? knotIdMap.get(menu.entryKnotId) || menu.entryKnotId : null,
+      meta: {
+        ...(menu.meta || {}),
+        sourceFileName: fileName,
+        rootDisplayName: displayName
+      }
+    }));
+
+    out.roots = out.roots.map((root) => ({
+      ...root,
+      id: rootIdMap.get(root.id) || root.id,
+      menuIds: root.menuIds.map((id) => menuIdMap.get(id) || id)
+    }));
+
+    const nextLayouts = {};
+    for (const [knotId, layout] of Object.entries(out.ui.layout.knots || {})) {
+      const nextId = knotIdMap.get(knotId) || knotId;
+      nextLayouts[nextId] = { ...layout };
+    }
+    out.ui.layout.knots = nextLayouts;
+    out.ui.activeMenuId = menuIdMap.get(out.ui.activeMenuId) || out.ui.activeMenuId;
+
+    if (out.hierarchy?.folders) {
+      out.hierarchy.folders = out.hierarchy.folders.map((folder) => ({
+        ...folder,
+        menuIds: (folder.menuIds || []).map((id) => menuIdMap.get(id) || id)
+      }));
+    }
+
+    return out;
+  }
+
+  function prefixImportedDocumentForSingleLoad(doc, fileName) {
+    const out = structuredClone(doc);
+    const displayName = displayNameFromImportFileName(fileName);
+
+    if (out.menus.length === 1) {
+      out.menus[0].name = displayName;
+      out.menus[0].meta = {
+        ...(out.menus[0].meta || {}),
+        sourceFileName: fileName,
+        rootDisplayName: displayName
+      };
+    } else {
+      out.menus = out.menus.map((menu, index) => ({
+        ...menu,
+        name: `${displayName}/${menu.name || `tree-${index + 1}`}`,
+        meta: {
+          ...(menu.meta || {}),
+          sourceFileName: fileName,
+          rootDisplayName: displayName
+        }
+      }));
+    }
+
+    out.document.title = displayName;
+    syncHierarchyFromMenus(out);
+    syncHierarchyFiles(out);
+    return out;
+  }
+
+  function createEmptyMergedState() {
+    const state = createDefaultState();
+    state.menus = [];
+    state.knots = [];
+    state.edges = [];
+    state.roots = [];
+    state.ui.activeMenuId = null;
+    state.ui.layout.knots = {};
+    state.hierarchy.folders = [{ id: uid("f"), name: "root", menuIds: [] }];
+    return state;
+  }
+
+  function mergeImportedDocuments(currentState, importedSources) {
+    const out = structuredClone(currentState);
+    const batchKey = Date.now().toString(36);
+    let firstImportedMenuId = null;
+
+    importedSources.forEach((source, index) => {
+      const prefixed = prefixImportedDocumentIds(source.doc, source.fileName, `${batchKey}_${index}`);
+      if (!firstImportedMenuId && prefixed.menus[0]) {
+        firstImportedMenuId = prefixed.menus[0].id;
+      }
+
+      out.knots.push(...prefixed.knots);
+      out.edges.push(...prefixed.edges);
+      out.menus.push(...prefixed.menus);
+      out.roots.push(...prefixed.roots);
+      Object.assign(out.ui.layout.knots, prefixed.ui.layout.knots || {});
+
+      const folder = out.hierarchy.folders[0] || { id: uid("f"), name: "root", menuIds: [] };
+      out.hierarchy.folders[0] = folder;
+      for (const menu of prefixed.menus) {
+        if (!folder.menuIds.includes(menu.id)) {
+          folder.menuIds.push(menu.id);
+        }
+      }
+    });
+
+    if (firstImportedMenuId) {
+      out.ui.activeMenuId = firstImportedMenuId;
+    }
+
+    syncHierarchyFromMenus(out);
+    validateActiveMenu(out);
+    touchDocumentUpdated(out);
+    syncHierarchyFiles(out);
+    return out;
+  }
+
   function exportDocument(state) {
     const out = structuredClone(state);
     syncHierarchyFiles(out);
@@ -1531,8 +1938,56 @@
     const name = document.createElement("span");
     name.className = "menu-item-name";
     name.textContent = opts.label || "";
+    name.contentEditable = "false";
+    name.spellcheck = false;
 
-    row.append(prefix, name);
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "menu-item-edit";
+    editBtn.textContent = "✐";
+    editBtn.title = "Rename file";
+
+    const finishRename = (save) => {
+      const nextName = (name.textContent || "").trim();
+      name.contentEditable = "false";
+      row.classList.remove("is-renaming");
+      name.removeEventListener("blur", onBlur);
+      name.removeEventListener("keydown", onKeyDown);
+      if (save && nextName && typeof opts.onRename === "function") {
+        opts.onRename(nextName);
+      } else {
+        name.textContent = opts.label || "";
+      }
+    };
+
+    const onBlur = () => finishRename(true);
+    const onKeyDown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        name.blur();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finishRename(false);
+      }
+    };
+
+    editBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      row.classList.add("is-renaming");
+      name.contentEditable = "true";
+      name.focus();
+      const selection = window.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(name);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      name.addEventListener("blur", onBlur, { once: true });
+      name.addEventListener("keydown", onKeyDown);
+    });
+
+    row.append(prefix, name, editBtn);
     if (typeof opts.onClick === "function") {
       row.addEventListener("click", opts.onClick);
     }
@@ -1549,6 +2004,11 @@
       const rowOpts = {
         active: menu.id === app.state.ui.activeMenuId,
         label: menu.name || "Untitled tree",
+        onRename: (nextName) => {
+          menu.name = nextName;
+          saveState();
+          render();
+        },
         onClick: () => {
           app.state.ui.activeMenuId = menu.id;
           if (window.matchMedia("(max-width: 720px)").matches) {
@@ -1636,11 +2096,11 @@
     return `knot-x${Date.now().toString(36)}`;
   }
 
-  /** 顯示名：在父標題後加 `--a`、`--b`…（父為 knot-a 則子為 knot-a--b） */
+  /** 顯示名：在父標題後加 `-a`、`-b`…（父為 knot-a 則子為 knot-a-a） */
   function nextChildKnotLabel(state, parentTitle) {
     const base = String(parentTitle || "").trim();
     if (!base) return nextRootKnotLabel(state);
-    const prefix = `${base}--`;
+    const prefix = `${base}-`;
     const re = new RegExp(`^${escapeRegExp(prefix)}([a-z])$`);
     const used = new Set();
     for (const k of state.knots) {
@@ -1762,43 +2222,43 @@
         id: "demo_a",
         title: "knot-a",
         text: "messy thought\n\n三叉：\n\n再长：",
-        layout: { x: 52, y: 88, width: 148, height: 92, zone: "canvas", zIndex: 1 }
+        layout: { x: 52, y: 88, width: 148, height: 92, zIndex: 1 }
       },
       {
         id: "demo_b",
         title: "knot-b",
         text: "system model",
-        layout: { x: 268, y: 24, width: 136, height: 46, zone: "canvas", zIndex: 2 }
+        layout: { x: 268, y: 24, width: 136, height: 46, zIndex: 2 }
       },
       {
         id: "demo_c",
         title: "knot-c",
         text: "writing surface",
-        layout: { x: 268, y: 104, width: 136, height: 46, zone: "canvas", zIndex: 3 }
+        layout: { x: 268, y: 104, width: 136, height: 46, zIndex: 3 }
       },
       {
         id: "demo_d",
         title: "knot-d",
         text: "execution path",
-        layout: { x: 268, y: 184, width: 136, height: 46, zone: "canvas", zIndex: 4 }
+        layout: { x: 268, y: 184, width: 136, height: 46, zIndex: 4 }
       },
       {
         id: "demo_e",
         title: "knot-e",
         text: "rules / relations",
-        layout: { x: 468, y: 52, width: 136, height: 46, zone: "canvas", zIndex: 5 }
+        layout: { x: 468, y: 52, width: 136, height: 46, zIndex: 5 }
       },
       {
         id: "demo_f",
         title: "knot-f",
         text: "prompt / text",
-        layout: { x: 468, y: 112, width: 136, height: 46, zone: "canvas", zIndex: 6 }
+        layout: { x: 468, y: 112, width: 136, height: 46, zIndex: 6 }
       },
       {
         id: "demo_g",
         title: "knot-g",
         text: "next action",
-        layout: { x: 468, y: 172, width: 136, height: 46, zone: "canvas", zIndex: 7 }
+        layout: { x: 468, y: 172, width: 136, height: 46, zIndex: 7 }
       }
     ];
 
@@ -1809,7 +2269,7 @@
         content: { text: s.text },
         meta: { ui: { ...uiOpen } }
       });
-      attachKnotToMenu(state, menu.id, s.id);
+      addKnotToMenuProjection(state, menu.id, s.id);
       setKnotLayout(state, s.id, s.layout);
     }
 
@@ -1992,12 +2452,16 @@
       });
       input.nodes.forEach((n, i) => {
         const id = String(n.id ?? `k${i}`);
+        const knot = out.knots.find((k) => k.id === id);
+        if (knot) {
+          knot.meta = knot.meta || {};
+          knot.meta.location = n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas";
+        }
         out.ui.layout.knots[id] = {
           x: Number.isFinite(n.x) ? n.x : 120,
           y: Number.isFinite(n.y) ? n.y : 80,
           width: Number.isFinite(n.noteWidth) ? n.noteWidth : KNOT_SIZE.width,
           height: Number.isFinite(n.noteHeight) ? n.noteHeight : KNOT_SIZE.height,
-          zone: n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas",
           zIndex: Number.isFinite(n.zIndex) ? n.zIndex : i + 1
         };
       });
@@ -2023,6 +2487,21 @@
       k.title = normalizeLegacyNodeTitle(k.title, i);
     });
 
+    for (const knot of out.knots) {
+      const layout = out.ui.layout.knots[knot.id];
+      if (!layout) continue;
+      knot.meta = knot.meta || {};
+      if (!knot.meta.location && layout.zone) {
+        knot.meta.location = layout.zone === "tray" ? "tray" : "canvas";
+      }
+      if (!knot.meta.location) {
+        knot.meta.location = "canvas";
+      }
+      if (layout.zone !== undefined) {
+        delete layout.zone;
+      }
+    }
+
     normalizeAllLayoutSizes(out);
     syncHierarchyFromMenus(out);
     validateActiveMenu(out);
@@ -2039,6 +2518,8 @@
     if (k.content && typeof k.content.text === "string") {
       knot.content.text = k.content.text;
     }
+    knot.meta = knot.meta || {};
+    knot.meta.location = knot.meta.location === "tray" || knot.meta.location === "stash" ? "tray" : "canvas";
     return knot;
   }
 
@@ -2133,9 +2614,9 @@
         y: Number.isFinite(n.y) ? n.y : 80 + i * 10,
         width: Number.isFinite(n.noteWidth) ? n.noteWidth : KNOT_SIZE.width,
         height: Number.isFinite(n.noteHeight) ? n.noteHeight : KNOT_SIZE.height,
-        zone: n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas",
         zIndex: Number.isFinite(n.zIndex) ? n.zIndex : i + 1
       };
+      knot.meta.location = n.zone === "stash" || n.zone === "tray" ? "tray" : "canvas";
     }
 
     const kIds = new Set(state.knots.map((k) => k.id));
@@ -2200,7 +2681,8 @@
   }
 
   function getEdgesForActiveMenu(state) {
-    return getEdgesForMenu(state, state.ui.activeMenuId);
+    const edgeIds = getVisibleEdgeIdsForMenu(state, state.ui.activeMenuId);
+    return edgeIds.map((id) => getEdgeById(state, id)).filter(Boolean);
   }
 
   function getKnotLayout(state, knotId) {
@@ -2209,7 +2691,6 @@
       y: 80,
       width: KNOT_SIZE.width,
       height: null,
-      zone: "canvas",
       zIndex: 1
     };
     return state.ui.layout.knots[knotId];
@@ -2217,9 +2698,16 @@
 
   function countTrayKnots() {
     return app.state.knots.filter((k) => {
-      const layout = getKnotLayout(app.state, k.id);
-      return layout.zone === "tray";
+      return isTrayKnot(k);
     }).length;
+  }
+
+  function getKnotLocation(knot) {
+    return knot?.meta?.location === "tray" || knot?.meta?.location === "stash" ? "tray" : "canvas";
+  }
+
+  function isTrayKnot(knot) {
+    return getKnotLocation(knot) === "tray";
   }
 
   function normalizeAllLayoutSizes(state) {
@@ -2230,6 +2718,7 @@
       if (!layout || typeof layout !== "object") continue;
       layout.width = KNOT_SIZE.width;
       if (!Number.isFinite(layout.height)) layout.height = null;
+      if (layout.zone !== undefined) delete layout.zone;
     }
   }
 
@@ -2237,21 +2726,57 @@
     const cur = { ...getKnotLayout(state, knotId), ...patch };
     cur.width = KNOT_SIZE.width;
     if (!Number.isFinite(cur.height)) cur.height = null;
+    if (cur.zone !== undefined) delete cur.zone;
     state.ui.layout.knots[knotId] = cur;
     return cur;
   }
 
-  function attachKnotToMenu(state, menuId, knotId) {
+  function addKnotToMenuProjection(state, menuId, knotId) {
     const m = getMenuById(state, menuId);
     if (!m) return;
     if (!m.knotIds.includes(knotId)) m.knotIds.push(knotId);
-    syncHierarchyFromMenus(state);
   }
 
-  function attachEdgeToMenu(state, menuId, edgeId) {
+  function addEdgeToMenuProjection(state, menuId, edgeId) {
     const m = getMenuById(state, menuId);
     if (!m) return;
     if (!m.edgeIds.includes(edgeId)) m.edgeIds.push(edgeId);
+  }
+
+  function removeKnotFromAllMenuProjections(state, knotId) {
+    for (const menu of state.menus) {
+      menu.knotIds = menu.knotIds.filter((id) => id !== knotId);
+    }
+  }
+
+  function removeEdgeFromAllMenuProjections(state, edgeId) {
+    for (const menu of state.menus) {
+      menu.edgeIds = menu.edgeIds.filter((id) => id !== edgeId);
+    }
+  }
+
+  function getVisibleKnotIdsForMenu(state, menuId) {
+    const menu = getMenuById(state, menuId);
+    if (!menu) {
+      return state.knots
+        .filter((knot) => !isTrayKnot(knot))
+        .map((knot) => knot.id);
+    }
+    return menu.knotIds.slice();
+  }
+
+  function getVisibleEdgeIdsForMenu(state, menuId) {
+    const menu = getMenuById(state, menuId);
+    if (!menu) {
+      return state.edges
+        .filter((edge) => {
+          const fromKnot = getKnotById(state, edge.from);
+          const toKnot = getKnotById(state, edge.to);
+          return !isTrayKnot(fromKnot) && !isTrayKnot(toKnot);
+        })
+        .map((edge) => edge.id);
+    }
+    return menu.edgeIds.slice();
   }
 
   function ensureEdge(state, fromId, toId, relation) {
@@ -2263,7 +2788,7 @@
     const edge = createEdgeModel(fromId, toId, relation);
     state.edges.push(edge);
     const menu = getActiveMenu(state);
-    if (menu) attachEdgeToMenu(state, menu.id, edge.id);
+    if (menu) addEdgeToMenuProjection(state, menu.id, edge.id);
     return edge;
   }
 

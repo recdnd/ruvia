@@ -158,6 +158,7 @@ textarea {
   min-height: 0;
   overflow: hidden;
   cursor: grab;
+  touch-action: none;
 }
 
 body.is-panning .canvas-pane {
@@ -170,6 +171,11 @@ body.is-panning .canvas-pane {
 .zoom-controls,
 .edge-cut {
   cursor: auto;
+}
+
+.knot-content-input,
+.knot-title {
+  touch-action: auto;
 }
 
 .canvas {
@@ -210,27 +216,38 @@ body.is-panning .canvas-pane {
   pointer-events: visibleStroke;
 }
 
+.edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 14px;
+  pointer-events: stroke;
+}
+
+.edge.is-hovered {
+  stroke: rgba(255, 0, 0, 0.67) !important;
+}
+
 body.white-mode .edge {
   stroke: rgba(130, 130, 130, 0.18);
 }
 
 .edge.temp {
-  stroke: var(--red);
+  stroke: #ff0000;
   stroke-dasharray: 2 2;
 }
 
 .edge-cut {
   position: absolute;
-  width: 10px;
-  height: 10px;
-  margin-left: -5px;
-  margin-top: -5px;
+  width: 47px;
+  height: 47px;
+  margin-left: -24px;
+  margin-top: -24px;
   padding: 0;
   border: 0;
   background: transparent;
   color: transparent;
-  font-size: 8px;
-  line-height: 10px;
+  font-size: 24px;
+  line-height: 30px;
   text-align: center;
   cursor: pointer;
   pointer-events: auto;
@@ -320,6 +337,11 @@ body.white-mode .knot.is-selected {
   color: var(--red);
 }
 
+.knot.is-renaming .knot-title {
+  background: rgba(255, 247, 120, 0.85);
+  color: var(--red);
+}
+
 /* header controls hidden/minimized */
 .knot-actions {
   position: absolute;
@@ -354,11 +376,37 @@ body.white-mode .knot.is-selected {
   pointer-events: auto;
 }
 
+.knot-edit-btn {
+  display: none;
+  position: relative;
+  z-index: 6;
+  width: var(--ctrl-size);
+  height: var(--ctrl-size);
+  border: 0;
+  background: transparent;
+  color: var(--ctrl-fg);
+  padding: 0;
+  margin: 0;
+  line-height: var(--ctrl-size);
+  cursor: pointer;
+  font-size: calc(var(--ctrl-font) - 1px);
+  pointer-events: auto;
+}
+
+.knot:hover .knot-edit-btn,
+.knot.is-selected .knot-edit-btn,
 .knot:hover .delete-btn,
 .knot.is-selected .delete-btn {
   display: inline-block;
 }
 
+.knot:hover .delete-btn,
+.knot.is-selected .delete-btn {
+  display: inline-block;
+}
+
+.knot-edit-btn:hover,
+.knot-edit-btn:focus-visible,
 .delete-btn:hover,
 .delete-btn:focus-visible {
   color: var(--red);
@@ -450,7 +498,12 @@ body.white-mode .knot.is-selected {
 }
 
 .port:hover {
-  background: var(--red);
+  background: #ff0000;
+}
+
+.knot:hover .port:hover,
+.knot.is-selected .port:hover {
+  background: #ff0000;
 }
 
 .side-add {
@@ -494,6 +547,13 @@ body.white-mode .knot.is-selected {
   color: var(--red);
   background: transparent;
   outline: none;
+}
+
+.knot.hover-left .side-add.left:hover,
+.knot.hover-right .side-add.right:hover,
+.knot.is-selected.hover-left .side-add.left:hover,
+.knot.is-selected.hover-right .side-add.right:hover {
+  color: #ff0000;
 }
 
 .knot-meta {
@@ -776,7 +836,19 @@ body.is-color-painting .knot {
 
 .knot[data-color] {
   background: var(--knot-bg-accent, var(--knot-bg));
+  border-color: var(--knot-accent, var(--line-soft));
   color: var(--text);
+}
+
+.knot[data-color]:hover,
+.knot[data-color].is-selected {
+  background: var(--knot-bg-accent, var(--knot-bg-hover));
+  border-color: var(--knot-accent, transparent);
+}
+
+.knot[data-color] .knot-title:focus,
+.knot[data-color] .knot-content-input:focus {
+  color: #ff0000;
 }
 
 .zoom-controls:hover,
@@ -820,6 +892,7 @@ body.white-mode .zoom-btn {
 }
 
 #menu-panel {
+  display: none;
   position: fixed;
   left: 14px;
   bottom: 14px;
@@ -838,6 +911,10 @@ body.white-mode .zoom-btn {
 
 .menu-drawer-toggle {
   display: none;
+}
+
+body.has-menus #menu-panel {
+  display: block;
 }
 
 .tray-drawer-toggle {
@@ -896,7 +973,7 @@ body.tray-collapsed .tray-collapse-btn {
 
 .menu-item {
   display: grid;
-  grid-template-columns: 14px 1fr;
+  grid-template-columns: 14px 1fr 14px;
   align-items: start;
   column-gap: 4px;
   padding: 2px 1px;
@@ -944,6 +1021,42 @@ body.tray-collapsed .tray-collapse-btn {
   word-break: break-word;
 }
 
+.menu-item-edit {
+  display: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(88, 66, 72, 0.82);
+  font-size: 10px;
+  line-height: 14px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+}
+
+.menu-item:hover .menu-item-edit,
+.menu-item:focus-within .menu-item-edit {
+  display: inline-block;
+}
+
+.menu-item-edit:hover,
+.menu-item-edit:focus-visible {
+  color: var(--red);
+  outline: none;
+}
+
+.menu-item.is-renaming .menu-item-name {
+  background: rgba(255, 247, 120, 0.85);
+  color: var(--red);
+  outline: none;
+}
+
+.menu-item.is-renaming .menu-item-edit {
+  display: inline-block;
+}
+
 @media (max-width: 720px) {
   .workspace {
     grid-template-columns: 1fr;
@@ -974,7 +1087,7 @@ body.tray-collapsed .tray-collapse-btn {
     grid-row: 1;
   }
 
-  .menu-drawer-toggle {
+  body.has-menus .menu-drawer-toggle {
     display: block;
     position: fixed;
     left: 10px;
@@ -992,7 +1105,7 @@ body.tray-collapsed .tray-collapse-btn {
     cursor: pointer;
   }
 
-  #menu-panel {
+  body.has-menus #menu-panel {
     display: none;
     position: fixed;
     left: 10px;
@@ -1003,7 +1116,7 @@ body.tray-collapsed .tray-collapse-btn {
     z-index: 10000;
   }
 
-  body.menu-drawer-open #menu-panel {
+  body.has-menus.menu-drawer-open #menu-panel {
     display: block;
   }
 
