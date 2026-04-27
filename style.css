@@ -429,7 +429,7 @@ body.white-mode .knot.is-selected {
 .knot-content-input {
   width: 100%;
   min-width: 96px;
-  min-height: 0;
+  min-height: 10px;
   height: auto;
   border: 0;
   resize: both;

@@ -61,6 +61,7 @@
     tempPoint: null,
     hoverEdgeId: null,
     hoverKnotId: null,
+    activeContentKnotId: null,
     activeColorName: null,
     activeDefaultColorName: null,
     colorCursorEl: null,
@@ -724,15 +725,23 @@
 
     for (const layer of knotLayers) {
       layer.addEventListener("mousemove", (event) => {
+        const prevHoverKnotId = app.hoverKnotId;
         const knotEl = event.target.closest(".knot");
         const knot = knotEl ? findKnot(knotEl.dataset.knotId) : null;
         app.hoverKnotId = knot ? knot.id : null;
         updateColorDot(knot);
+        if (prevHoverKnotId !== app.hoverKnotId && !isMobileView()) {
+          render();
+        }
       });
 
       layer.addEventListener("mouseleave", () => {
+        const hadHoverKnot = Boolean(app.hoverKnotId);
         app.hoverKnotId = null;
         updateColorDot(null);
+        if (hadHoverKnot && !isMobileView()) {
+          render();
+        }
       });
 
       if (layer === app.dom.knotLayer) {
@@ -947,6 +956,14 @@
       layer.addEventListener(
         "focusin",
         (event) => {
+          if (event.target.classList.contains("knot-content-input")) {
+            const knotEl = event.target.closest(".knot");
+            const knot = knotEl ? findKnot(knotEl.dataset.knotId) : null;
+            if (knot && app.activeContentKnotId !== knot.id) {
+              app.activeContentKnotId = knot.id;
+            }
+            return;
+          }
           if (!event.target.classList.contains("knot-title")) return;
           if (event.target.contentEditable !== "true") return;
           const knotEl = event.target.closest(".knot");
@@ -980,6 +997,17 @@
       layer.addEventListener(
         "focusout",
         (event) => {
+          if (event.target.classList.contains("knot-content-input")) {
+            const knotEl = event.target.closest(".knot");
+            const knot = knotEl ? findKnot(knotEl.dataset.knotId) : null;
+            if (knot && app.activeContentKnotId === knot.id) {
+              app.activeContentKnotId = null;
+              if (!isMobileView()) {
+                render();
+              }
+            }
+            return;
+          }
           if (!event.target.classList.contains("knot-title")) return;
           if (event.target.contentEditable !== "true") return;
           const knotEl = event.target.closest(".knot");
@@ -1414,7 +1442,6 @@
       knotEl.style.width = `${layout.width || KNOT_SIZE.width}px`;
       knotEl.style.zIndex = String(layout.zIndex || 1);
 
-      if (contentExpanded) knotEl.classList.add("content-expanded");
       if (uiMeta.childrenCollapsed) knotEl.classList.add("is-child-collapsed");
       if (knot.id === app.selectedKnotId) knotEl.classList.add("is-selected");
 
@@ -1443,6 +1470,11 @@
       const textInput = document.createElement("textarea");
       textInput.className = "knot-content-input";
       const contentText = ensureKnotContent(knot).text;
+      const isEmptyContent = contentText.trim() === "";
+      const shouldRevealEmptyContent = isEmptyContent && (
+        (!isMobileView() && (app.hoverKnotId === knot.id || app.activeContentKnotId === knot.id)) ||
+        (isMobileView() && app.selectedKnotId === knot.id)
+      );
       textInput.value = contentText;
       textInput.placeholder = "content";
       textInput.style.height = "auto";
@@ -1469,23 +1501,23 @@
       addRight.title = "extend right";
       addRight.textContent = "+";
 
+      const shouldShowContentRow = isEmptyContent
+        ? shouldRevealEmptyContent
+        : contentExpanded;
+      if (shouldShowContentRow) {
+        knotEl.classList.add("content-expanded");
+      }
+      if (isEmptyContent) {
+        knotEl.classList.add("is-empty-content");
+      }
+
       if (isTrayKnot(knot)) {
-        if (contentText.trim() !== "") {
-          contentWrap.append(textInput);
-          knotEl.append(header, contentWrap);
-        } else {
-          knotEl.classList.add("is-empty-content");
-          knotEl.append(header);
-        }
+        contentWrap.append(textInput);
+        knotEl.append(header, contentWrap);
         trayFrag.append(knotEl);
       } else {
-        if (contentText.trim() !== "") {
-          contentWrap.append(textInput);
-          knotEl.append(header, contentWrap, leftPort, rightPort, addLeft, addRight);
-        } else {
-          knotEl.classList.add("is-empty-content");
-          knotEl.append(header, leftPort, rightPort, addLeft, addRight);
-        }
+        contentWrap.append(textInput);
+        knotEl.append(header, contentWrap, leftPort, rightPort, addLeft, addRight);
         canvasFrag.append(knotEl);
       }
     }
